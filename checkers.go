@@ -549,7 +549,7 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 		return nil
 	}
 	src := string(b)
-	lowerSrc := strings.ToLower(src)
+	lowerSrc := string(asciiLower(b))
 	var active []*Checker
 	for _, c := range checkers {
 		l := c.Langs[lang]

@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"io"
 	"math"
 	"path"
@@ -111,6 +112,17 @@ func shouldSkip(p string, skipTests bool, extra []string) bool {
 	return false
 }
 
+// safeScanZip turns a panic while scanning one (untrusted) archive into that repo's scan
+// error, so a bug triggered by one strange file can't take the whole server down.
+func safeScanZip(zipPath string, opts scanOpts) (res *ScanResult, err error) {
+	defer func() {
+		if p := recover(); p != nil {
+			res, err = nil, fmt.Errorf("scanner crashed on this repo: %v", p)
+		}
+	}()
+	return scanZip(zipPath, opts)
+}
+
 // scanZip greps every source file in a zip archive with the matching sink profiles.
 func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	zr, err := zip.OpenReader(zipPath)
@@ -169,7 +181,7 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 		if len(opts.Checkers) > 0 && len(findings) < maxFindingsPerRepo {
 			findings = append(findings, runCheckers(name, b, opts.Checkers)...)
 		}
-		fb := fileBytes{b: b, lower: bytes.ToLower(b), starts: lineStartsBytes(b)}
+		fb := fileBytes{b: b, lower: asciiLower(b), starts: lineStartsBytes(b)}
 		for _, p := range profs {
 			scanFile(name, fb, p.Surface, "surface", &surface, &res.SurfaceHits, nil, nil)
 			scanFile(name, fb, p.Sinks, "sink", &sinks, &res.SinkHits, &res.WeightedSinks, res.ByClass)

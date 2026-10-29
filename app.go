@@ -864,7 +864,7 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 				} else {
 					o := opts
 					o.Profiles = t.profiles
-					r, err := scanZip(path, o)
+					r, err := safeScanZip(path, o)
 					os.Remove(path)
 					if err != nil {
 						res = &ScanResult{At: time.Now(), Ref: t.ref, Error: err.Error()}

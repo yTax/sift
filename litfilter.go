@@ -22,11 +22,34 @@ func requiredLits(pattern string) []string {
 	}
 	lits := litsOf(re.Simplify())
 	for _, l := range lits {
-		if len(l) < minLitLen {
-			return nil
+		if len(l) < minLitLen || !isASCII(l) {
+			return nil // text is lowercased ASCII-only, so non-ASCII literals can't be matched reliably
 		}
 	}
 	return lits
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+// asciiLower lowercases A-Z only. Unlike bytes.ToLower it never changes the length (some
+// Unicode letters lowercase to more or fewer bytes, and invalid UTF-8 gets replaced), so
+// offsets in the result line up with the original.
+func asciiLower(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
 }
 
 func litsOf(re *syntax.Regexp) []string {
