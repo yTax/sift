@@ -1,0 +1,20 @@
+name: Native parsers & emulators (tier 3)
+description: >
+  Memory-safety bugs need fuzzing (AFL++/libFuzzer) to confirm, so they take longer to land.
+  Off by default — turn on when you want a slower, more impressive target.
+source: github
+enabled: false
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 200
+sinks: [c-cpp]
+
+queries:
+  - id: emulators
+    q: 'topic:emulator language:C++ stars:100..5000'
+  - id: game-servers
+    note: network-facing C++ game server reimplementations
+    q: 'topic:game-server language:C++ stars:50..3000'
+  - id: parsers-c
+    q: 'topic:parser language:C stars:100..3000'
+  - id: file-formats
+    q: 'topic:file-format language:C stars:50..3000'

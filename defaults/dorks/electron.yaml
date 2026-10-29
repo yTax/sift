@@ -1,0 +1,22 @@
+name: Electron apps
+description: >
+  Renderer bugs turn into RCE when nodeIntegration/contextIsolation are wrong, IPC handlers trust the
+  renderer, or deep-link (protocol) handlers pass URLs to shell.openExternal.
+source: github
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 300
+sinks: [electron, js-ts]
+
+queries:
+  - id: launchers
+    note: game launchers — downloads, updaters, deep links
+    q: 'topic:electron topic:launcher stars:50..5000'
+  - id: discord-clients
+    q: 'topic:electron topic:discord stars:50..5000'
+  - id: minecraft
+    q: 'topic:electron topic:minecraft stars:30..5000'
+  - id: electron-app
+    q: 'topic:electron-app stars:200..5000'
+  - id: markdown-notes
+    note: note/markdown apps render untrusted content in a privileged window
+    q: 'topic:electron topic:markdown stars:100..5000'

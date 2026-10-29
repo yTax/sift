@@ -1,0 +1,20 @@
+name: Browser extensions
+description: >
+  Look for unverified messages (onMessageExternal, window "message" listeners without an origin check)
+  that reach privileged APIs. Many extensions are rarely updated and ship old libraries.
+source: github
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 300
+sinks: [browser-extension, js-ts]
+
+queries:
+  - id: chrome
+    q: 'topic:chrome-extension stars:100..5000'
+  - id: browser
+    q: 'topic:browser-extension stars:100..5000'
+  - id: firefox-addon
+    q: 'topic:firefox-addon stars:100..5000'
+  - id: firefox-extension
+    q: 'topic:firefox-extension stars:100..5000'
+  - id: webextension
+    q: 'topic:webextension stars:50..5000'

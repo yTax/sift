@@ -1,0 +1,29 @@
+id: go
+name: Go
+extensions: [.go]
+skip_paths: [mocks/, generated/, .pb.go, _gen.go, zz_generated]
+
+surface:
+  - { pattern: '\bhttp\.HandleFunc\(|\.HandleFunc\(|\.Handle\(\s*"/', label: net/http handler }
+  - { pattern: '\.(GET|POST|PUT|PATCH|DELETE|Any|Get|Post|Put|Patch|Delete)\(\s*"/', label: router route (gin/echo/chi/fiber) }
+  - { pattern: 'mcp\.NewTool\(|\.AddTool\(|NewMCPServer\(', label: MCP tool }
+  - { pattern: 'websocket\.Upgrader|\.FormFile\(|ParseMultipartForm\(', label: websocket / upload }
+  - { pattern: '\bnet\.Listen\(|\.Accept\(\)', label: raw socket listener }
+
+sinks:
+  - { pattern: 'exec\.Command(Context)?\(', label: exec.Command, class: cmd-exec, weight: 2.5 }
+  - { pattern: '"(sh|bash|/bin/sh|/bin/bash)",\s*"-c"|"cmd(\.exe)?",\s*"/[cC]"', label: shell -c invocation, class: cmd-exec, weight: 3 }
+  - { pattern: 'filepath\.Join\([^)]*(r\.|req|param|query|name|path|file|input)', label: path built from input, class: path-traversal, weight: 2 }
+  - { pattern: 'http\.ServeFile\(|http\.ServeContent\(|c\.File\(|c\.Attachment\(', label: file served from a path, class: path-traversal, weight: 2 }
+  - { pattern: 'zip\.OpenReader\(|zip\.NewReader\(|tar\.NewReader\(', label: archive extraction (zip slip), class: path-traversal, weight: 2 }
+  - { pattern: '\bos\.(Open|OpenFile|ReadFile|WriteFile|Create|Remove|RemoveAll|Rename)\(', label: filesystem call, class: file-io, weight: 1 }
+  - { pattern: 'http\.(Get|Post|Head|PostForm)\(\s*[^"]|http\.NewRequest(WithContext)?\(', label: outbound HTTP (SSRF), class: ssrf, weight: 1.5 }
+  - { pattern: '(Query|QueryRow|Exec|QueryContext|ExecContext|Raw|Where)\(\s*fmt\.Sprintf|(Query|Exec|Raw)\([^)]*"\s*\+\s*\w', label: SQL built from strings, class: sqli, weight: 2 }
+  - { pattern: 'template\.(HTML|JS|URL|HTMLAttr)\(|"text/template"', label: unescaped template content, class: xss, weight: 1.5 }
+  - { pattern: 'InsecureSkipVerify:\s*true', label: TLS verification off, class: tls, weight: 1 }
+  - { pattern: 'jwt\.Parse\([^)]*nil\)|SigningMethodNone|UnsafeAllowNoneSignatureType', label: weak JWT handling, class: auth-bypass, weight: 2 }
+
+auth:
+  - { pattern: '\b(IsAdmin|isAdmin|RequireAdmin|AdminOnly)\b|\.Role\b', label: role check }
+  - { pattern: '\b(RequireAuth|AuthMiddleware|Authorize|CheckPermission|HasPermission)\w*\(', label: auth middleware / permission }
+  - { pattern: 'jwt\.Parse|sessions\.|\.Cookie\(', label: session/token }

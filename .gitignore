@@ -1,0 +1,9 @@
+# runtime data (token lives in data/settings.json)
+/data/
+/dorks/
+/sinks/
+# build output
+/sift
+/sift.exe
+/dist/
+*.test

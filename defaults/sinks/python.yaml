@@ -1,0 +1,37 @@
+id: python
+name: Python
+extensions: [.py]
+skip_paths: [migrations/, alembic/]
+
+surface:
+  - { pattern: '@\w+\.(route|get|post|put|patch|delete|websocket|api_route)\(', label: HTTP route (Flask/FastAPI) }
+  - { pattern: 'urlpatterns\s*=', label: Django URL config }
+  - { pattern: '@\w+\.(tool|resource|prompt)\b|FastMCP\(|Server\(\s*[''"]', label: MCP tool/resource }
+  - { pattern: 'request\.(files|FILES)\b|UploadFile\b', label: file upload }
+  - { pattern: 'websockets?\.serve\(|@\w+\.websocket\(', label: websocket }
+  - { pattern: 'argparse\.ArgumentParser|click\.command', label: CLI entry (low value) }
+
+sinks:
+  - { pattern: 'subprocess\.\w+\([^)]*shell\s*=\s*True', label: subprocess with shell=True, class: cmd-exec, weight: 3 }
+  - { pattern: '\bos\.(system|popen|exec\w*)\(', label: os.system / os.popen, class: cmd-exec, weight: 3 }
+  - { pattern: 'subprocess\.(run|call|Popen|check_output|check_call)\(', label: subprocess call, class: cmd-exec, weight: 1.5 }
+  - { pattern: '(?:^|[^.\w])(eval|exec)\(', label: eval / exec, class: code-eval, weight: 3 }
+  - { pattern: 'render_template_string\(|Template\([^)]*\)\.render\(|jinja2\.Template\(', label: template from string (SSTI), class: ssti, weight: 3 }
+  - { pattern: '\b(pickle|cPickle|dill|shelve)\.(loads?|open)\(|joblib\.load\(|torch\.load\(', label: pickle-family load, class: deserialization, weight: 3 }
+  - { pattern: 'yaml\.(unsafe_load|load)\(', label: yaml.load (check the Loader), class: deserialization, weight: 2 }
+  - { pattern: '\bsend_file\(|send_from_directory\(|FileResponse\(|StaticFiles\(', label: file served from a path, class: path-traversal, weight: 2 }
+  - { pattern: 'os\.path\.join\([^)]*(request|filename|file_name|name|path|args|params)', label: path built from input, class: path-traversal, weight: 2 }
+  - { pattern: '\bopen\([^)]*(request|filename|file_name|path|args|params)', label: open() on input path, class: path-traversal, weight: 1.5 }
+  - { pattern: '\.extractall\(|\.extract\(|tarfile\.open\(|zipfile\.ZipFile\(', label: archive extraction (zip slip), class: path-traversal, weight: 2 }
+  - { pattern: 'shutil\.(copy\w*|move|rmtree)\(|os\.(remove|unlink|rename)\(', label: file move/delete, class: file-io, weight: 1 }
+  - { pattern: 'requests\.(get|post|put|request|head)\(|httpx\.(get|post|request|AsyncClient|Client)\(|urlopen\(|aiohttp\.ClientSession', label: outbound HTTP (SSRF), class: ssrf, weight: 1.5 }
+  - { pattern: '\.execute\(\s*f[''"]|\.execute\([^)]*%\s*\(|\.execute\([^)]*\.format\(|\.execute\([^)]*\+\s*\w|\btext\(\s*f[''"]', label: SQL built from strings, class: sqli, weight: 2 }
+  - { pattern: 'Markup\(|mark_safe\(|\|\s*safe\b|autoescape\s*=\s*False', label: HTML marked safe, class: xss, weight: 1 }
+  - { pattern: 'redirect\(\s*request\.', label: redirect to request value, class: open-redirect, weight: 1 }
+  - { pattern: 'verify\s*=\s*False', label: TLS verification off, class: tls, weight: 1 }
+
+auth:
+  - { pattern: 'login_required|requires_auth|admin_required|permission_required', label: decorator auth }
+  - { pattern: 'is_(admin|superuser|staff)\b|has_perm\(|has_permission\(', label: role/permission check }
+  - { pattern: 'Depends\(\s*(get_current_user|current_user|verify|auth)', label: FastAPI auth dependency }
+  - { pattern: 'jwt\.(decode|encode)\(|session\[', label: token/session handling }

@@ -1,0 +1,22 @@
+id: browser-extension
+name: Browser extension
+extensions: [.js, .mjs, .ts, .tsx, .json]
+skip_paths: [package.json, package-lock.json, tsconfig, .eslintrc, _locales/, locales/]
+
+surface:
+  - { pattern: 'runtime\.onMessage(External)?\.addListener|runtime\.onConnect(External)?\.addListener', label: extension message listener }
+  - { pattern: 'addEventListener\(\s*[''"]message[''"]|\bonmessage\s*=', label: window message listener }
+  - { pattern: '"(externally_connectable|web_accessible_resources|content_scripts)"', label: manifest exposure entry }
+
+sinks:
+  - { pattern: 'onMessageExternal|onConnectExternal', label: accepts messages from websites/other extensions, class: ext-messaging, weight: 3 }
+  - { pattern: 'addEventListener\(\s*[''"]message[''"]', label: postMessage listener (check event.origin), class: ext-messaging, weight: 2 }
+  - { pattern: '(chrome|browser)\.(tabs|scripting)\.executeScript|\.scripting\.(executeScript|insertCSS)|chrome\.debugger\.', label: script injection API, class: privileged-api, weight: 2 }
+  - { pattern: '(chrome|browser)\.(cookies|downloads|history|bookmarks|webRequest|declarativeNetRequest)\.', label: privileged browser API, class: privileged-api, weight: 1.5 }
+  - { pattern: '(?:^|[^.\w])eval\(|new\s+Function\(|setTimeout\(\s*[^(,)\s]*\+', label: eval / Function, class: code-eval, weight: 3 }
+  - { pattern: '\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML\(|document\.write\(|\$\([^)]*\)\.(html|append)\(', label: raw HTML sink, class: xss, weight: 2 }
+  - { pattern: '"<all_urls>"|"\*://\*/\*"|"https?://\*/\*"', label: access to every site, class: broad-permission, weight: 1 }
+  - { pattern: '''unsafe-eval''|"unsafe-eval"', label: CSP allows eval, class: code-eval, weight: 2 }
+
+auth:
+  - { pattern: 'sender\.(id|url|origin|tab)\b|event\.origin|\be\.origin\b|\.origin\s*[!=]==', label: sender/origin check }

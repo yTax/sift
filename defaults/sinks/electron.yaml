@@ -1,0 +1,26 @@
+id: electron
+name: Electron
+extensions: [.js, .mjs, .cjs, .ts, .mts]
+skip_paths: [renderer/vendor/]
+
+surface:
+  - { pattern: '\bipcMain\.(handle|on|once)\(', label: IPC handler (main process) }
+  - { pattern: 'contextBridge\.exposeInMainWorld\(', label: API exposed to renderer }
+  - { pattern: 'setAsDefaultProtocolClient\(|protocol\.(register\w*|handle)\(|app\.on\(\s*[''"](open-url|second-instance)', label: deep link / custom protocol }
+  - { pattern: 'new\s+BrowserWindow\(|<webview\b|new\s+WebContentsView\(', label: window / webview }
+
+sinks:
+  - { pattern: 'nodeIntegration:\s*true', label: nodeIntegration on, class: electron-config, weight: 3 }
+  - { pattern: 'contextIsolation:\s*false', label: contextIsolation off, class: electron-config, weight: 3 }
+  - { pattern: 'webSecurity:\s*false', label: webSecurity off, class: electron-config, weight: 2.5 }
+  - { pattern: 'nodeIntegrationInSubFrames:\s*true|allowRunningInsecureContent:\s*true', label: unsafe frame settings, class: electron-config, weight: 2 }
+  - { pattern: 'sandbox:\s*false', label: renderer sandbox off, class: electron-config, weight: 1.5 }
+  - { pattern: 'enableRemoteModule:\s*true|@electron/remote', label: remote module, class: electron-config, weight: 2 }
+  - { pattern: 'shell\.openExternal\(', label: shell.openExternal (check URL scheme), class: open-external, weight: 2.5 }
+  - { pattern: 'shell\.(openPath|openItem|showItemInFolder)\(', label: shell.openPath, class: open-external, weight: 2 }
+  - { pattern: '\.executeJavaScript\(', label: executeJavaScript, class: code-eval, weight: 2 }
+  - { pattern: '\.loadURL\(\s*[^''"`\s)]', label: loadURL with a variable, class: navigation, weight: 1.5 }
+
+auth:
+  - { pattern: 'setWindowOpenHandler|will-navigate|will-redirect|new-window', label: navigation guard }
+  - { pattern: 'event\.senderFrame|validateSender|isTrustedSender|\.senderFrame\.url', label: IPC sender check }

@@ -1,0 +1,28 @@
+# Template — files starting with "_" are ignored. Copy to e.g. ruby.yaml to add a language.
+#
+# Each pattern is a Go (RE2) regex matched line by line: no lookahead/lookbehind, (?i) for case-insensitive.
+# In YAML single quotes, write a literal ' as ''.
+#
+#   surface: where untrusted input enters (routes, packet handlers, IPC, message listeners)
+#   sinks:   where input becomes dangerous (exec, file paths, deserialization, SQL, HTML)
+#   auth:    permission/role/origin checks — lots of them = complex authorization = room for mistakes
+#
+# weight (sinks only, default 1): how much one hit is worth. Rough scale:
+#   3 = code/command execution, deserialization      2 = path traversal, SSRF, SQLi, XXE, missing auth
+#   1 = noisy or low-impact (generic file I/O, XSS, TLS off)
+# class: groups hits in the UI (cmd-exec, path-traversal, ...). Keep names lowercase-with-dashes.
+
+id: ruby
+name: Ruby
+extensions: [.rb, .erb]
+skip_paths: [spec/support/]
+
+surface:
+  - { pattern: '\b(get|post|put|patch|delete)\s+[''"]/', label: Sinatra route }
+
+sinks:
+  - { pattern: '\b(system|exec|spawn)\s*\(|`[^`]*#\{', label: shell command, class: cmd-exec, weight: 3 }
+  - { pattern: 'Marshal\.load|YAML\.load\(', label: deserialization, class: deserialization, weight: 3 }
+
+auth:
+  - { pattern: 'before_action\s+:authenticate|can\?\(|authorize\b', label: auth check }

@@ -1,0 +1,21 @@
+id: c-cpp
+name: C / C++
+extensions: [.c, .cc, .cpp, .cxx, .h, .hh, .hpp]
+skip_paths: [3rdparty/, contrib/, imgui/, glad/, stb_, miniz]
+
+surface:
+  - { pattern: '\b(recv|recvfrom|recvmsg|WSARecv)\s*\(', label: socket receive }
+  - { pattern: '\b(fread|ReadFile|read)\s*\(\s*\w+\s*,', label: file/stream read }
+  - { pattern: '\b(parse|decode|load|read)_?[A-Z]?\w*\s*\(\s*(const\s+)?(u?int8_t|unsigned\s+char|char|std::byte|std::vector<u?int8_t>)\s*[*&]', label: buffer parser function }
+  - { pattern: '\bargv\[', label: command-line input (low value) }
+
+sinks:
+  - { pattern: '\b(strcpy|strcat|sprintf|vsprintf|gets|stpcpy|wcscpy|wcscat|lstrcpy\w*)\s*\(', label: unbounded string copy, class: memory, weight: 2.5 }
+  - { pattern: '\b(memcpy|memmove|CopyMemory|RtlCopyMemory)\s*\(', label: memcpy (check length source), class: memory, weight: 1 }
+  - { pattern: '\balloca\s*\(|\bscanf\s*\(\s*"[^"]*%s', label: alloca / scanf %s, class: memory, weight: 2 }
+  - { pattern: '\bprintf\s*\(\s*[a-zA-Z_]\w*\s*\)|\bfprintf\s*\(\s*\w+\s*,\s*[a-zA-Z_]\w*\s*\)|\bsyslog\s*\(\s*\w+\s*,\s*[a-zA-Z_]\w*\s*\)', label: format string from a variable, class: format-string, weight: 3 }
+  - { pattern: '\bmalloc\s*\([^)]*\*[^)]*\)|\bnew\s+\w+\s*\[[^\]]*\*', label: multiplied allocation size (integer overflow), class: memory, weight: 1.5 }
+  - { pattern: '\b(system|popen|execl|execlp|execv|execvp|WinExec|ShellExecute\w*|CreateProcess\w*)\s*\(', label: process execution, class: cmd-exec, weight: 3 }
+
+auth:
+  - { pattern: '(?i)\b(check_?auth|authenticate|verify_?password|is_?admin)\w*\s*\(', label: auth check }

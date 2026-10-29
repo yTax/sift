@@ -1,0 +1,37 @@
+name: Minecraft ecosystem
+description: >
+  Low competition, mostly Java. Maintainers treat dupes and game exploits as gameplay bugs, so aim
+  for things that hit the host or other players: deserialization, file write, packet-based crashes,
+  web panels, proxy plugins (network-facing), launchers (downloads + code execution).
+source: github
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 300
+sinks: [java, js-ts, python, go]
+
+queries:
+  - id: spigot
+    q: 'topic:spigot-plugin stars:30..2000'
+  - id: paper
+    q: 'topic:paper-plugin stars:30..2000'
+  - id: bukkit
+    q: 'topic:bukkit-plugin stars:30..2000'
+  - id: velocity
+    note: proxy plugins sit in front of every player connection
+    q: 'topic:velocity-plugin stars:20..2000'
+  - id: bungeecord
+    q: 'topic:bungeecord-plugin stars:20..2000'
+  - id: launchers
+    note: launchers download and run code — update/asset pipelines are the target
+    q: 'topic:minecraft-launcher stars:50..5000'
+  - id: server-managers
+    q: 'topic:minecraft-server-manager stars:20..5000'
+  - id: panels
+    q: 'topic:minecraft topic:dashboard stars:20..5000'
+  - id: discord-bridges
+    note: Discord <-> server bridges often run console commands from chat
+    q: 'topic:minecraft topic:discord-bot stars:20..3000'
+  - id: forge-mods
+    note: BleedingPipe-class bugs (ObjectInputStream on packets)
+    q: 'topic:forge-mod stars:100..5000'
+  - id: fabric-mods
+    q: 'topic:fabric-mod stars:100..5000'

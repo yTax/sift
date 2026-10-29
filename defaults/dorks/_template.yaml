@@ -1,0 +1,53 @@
+# Template — files starting with "_" are ignored. Copy this to e.g. my-scene.yaml to add a category.
+#
+# One file = one category ("scene"). sift reloads the folder on every run, so you can edit while it runs.
+
+id: my-scene                 # optional, defaults to the file name
+name: My scene               # shown in the UI
+description: What lives here and why it's worth hunting
+source: github               # github | wordpress | jenkins
+enabled: true                # off = skipped by "Run all"
+
+# Text added in front of every query in this file.
+#   {{since}}        -> today minus "max days since push" (Settings)
+#   {{days_ago:N}}   -> today minus N days
+# Don't add fork:false — forks are excluded by default and unknown qualifiers turn into search text.
+base: "archived:false pushed:>{{since}}"
+
+# Per-query cap for this category (overrides Settings). GitHub never returns more than 1000 per query;
+# put a stars:A..B range in the query and set this above 1000 to let sift split it automatically.
+max_results_per_query: 300
+
+# Which sink profiles (files in sinks/) to grep this category with. Empty = all of them.
+sinks: [js-ts, python]
+
+contacts:
+  discover: true             # look for SECURITY.md / PVR / email / Discord / Telegram ...
+  require: true              # drop repos with no private contact (turn off when a program handles disclosure)
+
+prescore: true               # download + grep the code of repos that pass the filters
+
+queries:
+  - id: example
+    note: why this query exists
+    q: 'topic:something stars:50..3000'
+
+# --- wordpress source -----------------------------------------------------------
+# wordpress:
+#   min_installs: 1000
+#   max_installs: 300000
+#   max_days_since_update: 180
+# queries:
+#   - { id: forms, tag: form, pages: 3 }          # tag | search | author | browse (popular|updated|new)
+#
+# --- jenkins source -------------------------------------------------------------
+# jenkins:
+#   min_popularity: 500         # ~ install count
+#   max_popularity: 150000
+#   max_days_since_release: 365 # 0 = no limit
+#   only_ids: []                # e.g. the plugin IDs in the bug bounty scope
+#   exclude_ids: []
+# queries:
+#   - { id: auth, label: security }
+#   - { id: by-name, name_regex: '(?i)oauth|ldap|saml' }
+#   - { id: everything, all: true }

@@ -1,0 +1,32 @@
+id: java
+name: Java / Kotlin (incl. Jenkins & Minecraft)
+extensions: [.java, .kt, .groovy]
+skip_paths: [src/test/, src/it/, generated-sources/]
+
+surface:
+  - { pattern: '@(Get|Post|Put|Delete|Patch|Request)Mapping|@Path\(|@(GET|POST|PUT|DELETE)\b', label: Spring / JAX-RS endpoint }
+  - { pattern: '\bpublic\s+[\w<>\[\], ?]+\s+do[A-Z]\w*\(', label: Jenkins/Stapler web method (doXxx) }
+  - { pattern: 'onPluginMessageReceived|PluginMessageEvent|PacketListener|PacketEvent|ChannelInboundHandler|channelRead0?\(|CustomPayload', label: network packet handler (Minecraft/Netty) }
+  - { pattern: 'implements\s+CommandExecutor|onCommand\(|@Command\(|registerCommand\(|getCommand\(', label: player/console command }
+  - { pattern: 'AsyncPlayerChatEvent|AsyncChatEvent|PlayerCommandPreprocessEvent|SignChangeEvent|PlayerEditBookEvent', label: player-controlled text }
+  - { pattern: 'HttpServer\.create\(|Javalin\.create|NanoHTTPD|spark\.Spark|\bget\(\s*"/', label: embedded web server }
+
+sinks:
+  - { pattern: 'ObjectInputStream|\.readObject\(\)|XMLDecoder|SerializationUtils\.deserialize|new\s+Kryo\(', label: Java deserialization, class: deserialization, weight: 3 }
+  - { pattern: 'XStream|\.fromXML\(|enableDefaultTyping|activateDefaultTyping|JsonTypeInfo\.Id\.CLASS', label: polymorphic XML/JSON deserialization, class: deserialization, weight: 2.5 }
+  - { pattern: 'Runtime\.getRuntime\(\)\.exec\(|new\s+ProcessBuilder\(|ProcessBuilder\(', label: process execution, class: cmd-exec, weight: 3 }
+  - { pattern: 'ScriptEngine(Manager)?\b|new\s+GroovyShell|GroovyClassLoader|Eval\.me\(|SpelExpressionParser|\bOgnl\.', label: script / expression evaluation, class: code-eval, weight: 3 }
+  - { pattern: 'URLClassLoader|defineClass\(|Class\.forName\(', label: dynamic class loading, class: code-eval, weight: 1.5 }
+  - { pattern: 'ZipInputStream|new\s+ZipFile\(|new\s+JarFile\(|TarArchiveInputStream|getNextEntry\(', label: archive extraction (zip slip), class: path-traversal, weight: 2 }
+  - { pattern: 'new\s+File\([^)]*,\s*\w|Paths\.get\([^)]*,|Path\.of\([^)]*,|\.resolve\(\s*\w', label: path built from parts, class: path-traversal, weight: 1.5 }
+  - { pattern: 'new\s+File(Input|Output)Stream\(|Files\.(write|copy|move|delete|newOutputStream|readAllBytes|readString)\(', label: filesystem call, class: file-io, weight: 1 }
+  - { pattern: 'DocumentBuilderFactory|SAXParserFactory|XMLInputFactory|TransformerFactory|SAXReader|SAXBuilder|XMLReaderFactory|SchemaFactory', label: XML parser (check XXE settings), class: xxe, weight: 2 }
+  - { pattern: 'new\s+URL\([^)]*\)\.open(Connection|Stream)|HttpURLConnection|HttpClient\.newHttpClient|OkHttpClient|RestTemplate|WebClient\.create', label: outbound HTTP (SSRF), class: ssrf, weight: 1.5 }
+  - { pattern: '(createStatement|executeQuery|executeUpdate|prepareStatement|createQuery|createNativeQuery)\([^)]*"\s*\+\s*\w', label: SQL built from strings, class: sqli, weight: 2 }
+  - { pattern: 'private\s+(final\s+)?String\s+\w*(password|Password|token|Token|secret|Secret|apiKey|ApiKey)\b', label: secret stored as String (Jenkins should use Secret), class: plaintext-secret, weight: 1.5 }
+  - { pattern: 'TrustAllCerts|trustAll|ALLOW_ALL_HOSTNAME_VERIFIER|setHostnameVerifier\(|X509TrustManager', label: TLS verification weakened, class: tls, weight: 1 }
+
+auth:
+  - { pattern: 'checkPermission\(|hasPermission\(|Jenkins\.(ADMINISTER|MANAGE|READ)|Item\.(CONFIGURE|READ|BUILD)|@RequirePOST|@POST\b', label: Jenkins permission / POST check }
+  - { pattern: '@PreAuthorize|@Secured|@RolesAllowed|hasRole\(|hasAuthority\(', label: Spring security }
+  - { pattern: '\.isOp\(\)|hasPermission\(\s*"|\.hasPermission\(', label: Minecraft permission check }

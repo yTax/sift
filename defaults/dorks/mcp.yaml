@@ -1,0 +1,30 @@
+name: MCP servers & AI agents
+description: >
+  Young, fast-written code wrapping filesystems, shells and HTTP clients. The 2026 CVE wave here is
+  mostly path traversal, command injection and SSRF in tool handlers — classic bugs in new code.
+source: github
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 300
+sinks: [js-ts, python, go]
+
+queries:
+  - id: mcp-server-topic
+    note: the canonical topic
+    q: 'topic:mcp-server stars:20..3000'
+  - id: mcp-ts
+    q: 'topic:mcp language:TypeScript stars:20..3000'
+  - id: mcp-python
+    q: 'topic:mcp language:Python stars:20..3000'
+  - id: mcp-go
+    q: 'topic:mcp language:Go stars:20..3000'
+  - id: protocol-topic
+    q: 'topic:model-context-protocol stars:20..3000'
+  - id: name-desc
+    note: repos that never set a topic
+    q: '"mcp server" in:name,description stars:50..3000'
+  - id: agents-selfhosted
+    note: agent platforms people run on their own boxes
+    q: 'topic:ai-agent topic:self-hosted stars:100..5000'
+  - id: llm-webui
+    note: self-hosted LLM front-ends (uploads, RAG, plugins, multi-user)
+    q: 'topic:llm topic:self-hosted stars:200..8000'

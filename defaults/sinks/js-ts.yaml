@@ -1,0 +1,37 @@
+id: js-ts
+name: JavaScript / TypeScript
+extensions: [.js, .mjs, .cjs, .jsx, .ts, .tsx, .mts, .cts]
+skip_paths: [public/assets/, static/js/, .vitepress/, storybook]
+
+surface:
+  - { pattern: '\b(app|router|server|fastify|api|r)\.(get|post|put|patch|delete|all|use)\(\s*[''"`/]', label: HTTP route (Express-style) }
+  - { pattern: 'export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b', label: Next.js route handler }
+  - { pattern: '@(Get|Post|Put|Patch|Delete|All)\(', label: NestJS route }
+  - { pattern: '\.(tool|registerTool|resource|registerResource|prompt)\(\s*[''"`{]|setRequestHandler\(\s*CallToolRequestSchema', label: MCP tool/resource }
+  - { pattern: 'new\s+WebSocketServer|\bio\.on\(\s*[''"]connection|\.on\(\s*[''"]message[''"]', label: websocket/socket.io }
+  - { pattern: 'multer\(|formidable|busboy|req\.files\b', label: file upload }
+  - { pattern: '\bipcMain\.(handle|on)\(', label: Electron IPC }
+
+sinks:
+  - { pattern: 'require\(\s*[''"](node:)?child_process[''"]|from\s+[''"](node:)?child_process[''"]', label: child_process imported, class: cmd-exec, weight: 1 }
+  - { pattern: '(child_process|childProcess|cp)\.(exec|execSync|spawn|spawnSync|execFile|execFileSync)\(', label: child_process call, class: cmd-exec, weight: 3 }
+  - { pattern: '(?:^|[\s(=;,!:])(exec|execSync|execFileSync|spawnSync|execa|execaCommand)\(', label: exec-style call, class: cmd-exec, weight: 2.5 }
+  - { pattern: 'shell:\s*true', label: spawn with shell:true, class: cmd-exec, weight: 2 }
+  - { pattern: '(?:^|[^.\w])eval\(|new\s+Function\(|\bvm\.(runIn\w+|Script|compileFunction)\(|\bvm2\b', label: eval / Function / vm, class: code-eval, weight: 3 }
+  - { pattern: 'node-serialize|funcster|\.unserialize\(', label: unsafe deserialization lib, class: deserialization, weight: 3 }
+  - { pattern: 'path\.(join|resolve)\([^)]*(req\.|params|query|body|args|input|name|file)', label: path built from input, class: path-traversal, weight: 2 }
+  - { pattern: 'res\.(sendFile|download|attachment)\(|createReadStream\([^)]*(req\.|params|query)', label: file served from a path, class: path-traversal, weight: 2 }
+  - { pattern: '\b(fs|fsp|fse|promises)\.(readFile|readFileSync|createReadStream|writeFile|writeFileSync|createWriteStream|appendFile|unlink|rm|rmSync|readdir|copyFile|rename|mkdir)\w*\(', label: filesystem call, class: file-io, weight: 1 }
+  - { pattern: 'adm-zip|unzipper|extract-zip|decompress\(|\.extractAllTo\(|\btar\.x\(', label: archive extraction (zip slip), class: path-traversal, weight: 2 }
+  - { pattern: '\bfetch\(\s*[^''"`\s)]|axios(\.(get|post|put|request))?\(\s*[^''"`\s)]|\bgot\(\s*[^''"`\s)]|https?\.get\(\s*[^''"`\s)]', label: outbound HTTP to a variable URL (SSRF), class: ssrf, weight: 1.5 }
+  - { pattern: '\$queryRawUnsafe|\$executeRawUnsafe|sequelize\.query\(\s*`', label: raw SQL (unsafe API), class: sqli, weight: 3 }
+  - { pattern: '\.(query|raw|execute|run|all|get)\(\s*`[^`]*\$\{', label: SQL via template literal, class: sqli, weight: 2 }
+  - { pattern: 'dangerouslySetInnerHTML|\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML\(|document\.write\(|\bv-html\b|\{@html\s', label: raw HTML sink, class: xss, weight: 1 }
+  - { pattern: 'res\.redirect\(\s*req\.', label: redirect to request value, class: open-redirect, weight: 1 }
+  - { pattern: 'jwt\.decode\(|algorithms:\s*\[[^\]]*none|ignoreExpiration:\s*true', label: weak JWT handling, class: auth-bypass, weight: 1.5 }
+  - { pattern: 'rejectUnauthorized:\s*false|NODE_TLS_REJECT_UNAUTHORIZED', label: TLS verification off, class: tls, weight: 1 }
+
+auth:
+  - { pattern: '\b(isAdmin|is_admin|requireAdmin|adminOnly)\b|role\s*[!=]==|\.role\b', label: role check }
+  - { pattern: '\b(requireAuth|ensureAuth\w*|isAuthenticated|authorize|checkPermission|hasPermission|can\()\b', label: auth middleware / permission }
+  - { pattern: 'passport\.authenticate|jwt\.verify\(|getServerSession\(|req\.user\b|req\.session\b', label: session/token }

@@ -1,0 +1,52 @@
+name: WordPress plugins
+description: >
+  Wordfence's bug bounty covers WordPress plugins and themes and handles the vendor for you, so there's
+  no contact filter here. Competition is heavy on reflected XSS; aim for missing capability checks on
+  AJAX/REST handlers (IDOR, privilege escalation, unauthenticated file ops). Check Wordfence's current
+  scope rules (install thresholds per vulnerability type) before you sink time into a plugin.
+source: wordpress
+contacts:
+  discover: false
+  require: false
+wordpress:
+  min_installs: 1000
+  max_installs: 300000
+  max_days_since_update: 180
+sinks: [php]
+
+queries:
+  - id: file-managers
+    tag: file-manager
+    pages: 3
+  - id: upload
+    tag: upload
+    pages: 3
+  - id: membership
+    note: roles, registration, profile edits — privilege escalation territory
+    tag: membership
+    pages: 3
+  - id: user-registration
+    tag: user-registration
+    pages: 3
+  - id: lms
+    tag: lms
+    pages: 3
+  - id: booking
+    tag: booking
+    pages: 3
+  - id: forms
+    tag: form
+    pages: 4
+  - id: import-export
+    tag: import
+    pages: 2
+  - id: backup
+    tag: backup
+    pages: 2
+  - id: woocommerce-addons
+    tag: woocommerce
+    pages: 4
+  - id: recently-updated
+    note: fresh code, fresh bugs
+    browse: updated
+    pages: 5

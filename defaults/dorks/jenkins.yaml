@@ -1,0 +1,34 @@
+name: Jenkins plugins
+description: >
+  The Jenkins project is its own CNA, so the security team issues the CVE and contacts the maintainer.
+  Typical bugs: missing permission checks, CSRF on form handlers, plaintext secrets in config XML, XXE.
+  The bug bounty covers core and *some* plugins — paste the in-scope plugin IDs into only_ids if you
+  want bounty-eligible targets only.
+source: jenkins
+contacts:
+  discover: false
+  require: false
+jenkins:
+  min_popularity: 500
+  max_popularity: 150000
+  max_days_since_release: 365
+  only_ids: []
+  exclude_ids: []
+sinks: [java]
+
+queries:
+  - id: security-label
+    label: security
+  - id: credentials
+    label: credentials
+  - id: users-auth
+    label: user
+  - id: upload
+    label: upload
+  - id: scm
+    label: scm
+  - id: auth-by-name
+    note: auth integrations — session, token and permission handling
+    name_regex: '(?i)oauth|ldap|saml|openid|oidc|sso|login|token|auth'
+  - id: files-scripts
+    name_regex: '(?i)upload|file|artifact|archive|import|export|script|groovy|webhook'

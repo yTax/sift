@@ -1,0 +1,18 @@
+name: Jenkins plugins up for adoption
+description: >
+  Plugins labelled "adopt-this-plugin" have no active maintainer. The Jenkins security team still
+  publishes advisories (and CVEs) for them — often with "no fix" — so an unmaintained plugin does not
+  block your credit. Usually not bounty-eligible, but one of the fastest routes to a CVE.
+source: jenkins
+contacts:
+  discover: false
+  require: false
+jenkins:
+  min_popularity: 300
+  max_popularity: 100000
+  max_days_since_release: 0
+sinks: [java]
+
+queries:
+  - id: adopt
+    label: adopt-this-plugin

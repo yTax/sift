@@ -1,0 +1,34 @@
+name: Self-hosted & homelab
+description: >
+  Multi-user web apps with uploads, admin panels and shell-outs, usually reviewed by nobody.
+  Auth/IDOR bugs here are scanner-proof, which is exactly why they survive.
+source: github
+base: "archived:false pushed:>{{since}}"
+max_results_per_query: 300
+sinks: [js-ts, python, go, java, php]
+
+queries:
+  - id: self-hosted
+    q: 'topic:self-hosted stars:100..5000'
+  - id: selfhosted-alt
+    note: the other spelling
+    q: 'topic:selfhosted stars:100..5000'
+  - id: homelab
+    q: 'topic:homelab stars:100..5000'
+  - id: file-manager
+    note: path traversal + upload heaven
+    q: 'topic:file-manager stars:50..5000'
+  - id: dashboards
+    q: 'topic:dashboard topic:self-hosted stars:50..5000'
+  - id: game-panels
+    note: game server panels — they run commands on the host by design
+    q: 'topic:game-server-panel stars:20..5000'
+  - id: game-managers
+    q: 'topic:game-server-manager stars:20..5000'
+  - id: pterodactyl
+    q: 'topic:pterodactyl stars:20..3000'
+  - id: docker-ui
+    note: docker management UIs (socket access = host)
+    q: 'topic:docker-management stars:50..5000'
+  - id: media-server
+    q: 'topic:media-server stars:100..5000'

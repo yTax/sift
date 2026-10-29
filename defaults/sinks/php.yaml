@@ -1,0 +1,38 @@
+id: php
+name: PHP / WordPress
+extensions: [.php, .phtml, .inc]
+skip_paths: [languages/, lib/vendor/, freemius/]
+
+surface:
+  - { pattern: 'add_action\(\s*[''"]wp_ajax_nopriv_', label: unauthenticated AJAX handler (wp_ajax_nopriv_) }
+  - { pattern: 'add_action\(\s*[''"]wp_ajax_', label: AJAX handler (wp_ajax_) }
+  - { pattern: 'add_action\(\s*[''"]admin_post(_nopriv)?_', label: admin-post handler }
+  - { pattern: 'register_rest_route\(', label: REST route }
+  - { pattern: 'add_shortcode\(', label: shortcode (contributor-controlled attributes) }
+  - { pattern: '\$_(GET|POST|REQUEST|COOKIE|FILES)\[', label: request superglobal }
+  - { pattern: 'Route::(get|post|put|patch|delete|any)\(', label: Laravel route }
+
+sinks:
+  - { pattern: '[''"]permission_callback[''"]\s*=>\s*[''"]__return_true[''"]', label: REST route open to everyone, class: missing-auth, weight: 2.5 }
+  - { pattern: '\b(system|shell_exec|passthru|popen|proc_open|pcntl_exec)\s*\(|(?:^|[^>\w])exec\s*\(|`[^`]*\$', label: shell command, class: cmd-exec, weight: 3 }
+  - { pattern: '(?:^|[^>\w])eval\s*\(|assert\s*\(\s*\$|create_function\s*\(|call_user_func(_array)?\s*\(\s*\$', label: eval / dynamic call, class: code-eval, weight: 3 }
+  - { pattern: '\b(include|require)(_once)?\s*\(?\s*[^''"\s;]*\$', label: include with a variable, class: file-inclusion, weight: 3 }
+  - { pattern: '(?:^|[^_\w])unserialize\s*\(', label: unserialize, class: deserialization, weight: 3 }
+  - { pattern: 'maybe_unserialize\s*\(', label: maybe_unserialize, class: deserialization, weight: 1.5 }
+  - { pattern: '\b(file_get_contents|fopen|readfile|file_put_contents|unlink|copy|rename|file|move_uploaded_file)\s*\([^;]*\$_(GET|POST|REQUEST)', label: file op on request value, class: path-traversal, weight: 3 }
+  - { pattern: '\b(file_put_contents|unlink|move_uploaded_file|readfile|fopen|copy|rename|rmdir|mkdir)\s*\(', label: filesystem call, class: file-io, weight: 1 }
+  - { pattern: 'ZipArchive|->extractTo\(|PclZip|unzip_file\(', label: archive extraction (zip slip), class: path-traversal, weight: 2 }
+  - { pattern: 'wp_handle_upload\(|wp_upload_bits\(|media_handle_upload\(|\$_FILES\[', label: file upload handling, class: upload, weight: 1.5 }
+  - { pattern: '\$wpdb->(query|get_results|get_var|get_row|get_col)\(\s*["''][^"'']*\$|\$wpdb->(query|get_results|get_var|get_row|get_col)\(\s*"[^"]*\{\$', label: $wpdb query with interpolation (no prepare), class: sqli, weight: 2.5 }
+  - { pattern: 'mysqli_query\(|->query\(\s*"[^"]*\$', label: raw SQL query, class: sqli, weight: 1.5 }
+  - { pattern: 'update_option\(\s*\$|update_user_meta\(\s*[^,]+,\s*\$|wp_update_user\(\s*\$_|set_role\(\s*\$', label: option/user meta/role from a variable (privilege escalation), class: privesc, weight: 2.5 }
+  - { pattern: 'wp_remote_(get|post|request|head)\(\s*\$|curl_setopt\([^)]*CURLOPT_URL|file_get_contents\(\s*\$\w*(url|link|src)', label: outbound HTTP to a variable URL (SSRF), class: ssrf, weight: 1.5 }
+  - { pattern: '(echo|print)\s+\$_(GET|POST|REQUEST|SERVER)', label: request value echoed, class: xss, weight: 1.5 }
+  - { pattern: '\bextract\s*\(\s*\$_', label: extract() on request, class: mass-assignment, weight: 2 }
+  - { pattern: 'wp_redirect\(\s*\$_|header\(\s*[''"]Location:[^;]*\$_', label: redirect to request value, class: open-redirect, weight: 1 }
+
+auth:
+  - { pattern: 'current_user_can\(', label: capability check }
+  - { pattern: 'check_ajax_referer\(|wp_verify_nonce\(|check_admin_referer\(', label: nonce check (CSRF, not authorization!) }
+  - { pattern: '\bis_admin\(\)', label: is_admin() — only means "admin area", often misused as an auth check }
+  - { pattern: 'is_user_logged_in\(', label: logged-in check }
