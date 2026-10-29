@@ -118,9 +118,17 @@ type Repo struct {
 	Status    string    `json:"status"` // new | shortlist | digging | reported | skipped
 	Notes     string    `json:"notes,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Your call after reading the code: was the lead worth it? Score parts are kept as they were
+	// when you decided, so the ranking can later learn which parts actually predicted good leads.
+	Verdict      string             `json:"verdict,omitempty"` // real | dud
+	VerdictAt    *time.Time         `json:"verdict_at,omitempty"`
+	VerdictParts map[string]float64 `json:"verdict_parts,omitempty"`
 }
 
 var validStatus = map[string]bool{"new": true, "shortlist": true, "digging": true, "reported": true, "skipped": true}
+
+var validVerdict = map[string]bool{"": true, "real": true, "dud": true}
 
 type RunRecord struct {
 	ID         int       `json:"id"`

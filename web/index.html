@@ -1,1 +1,69 @@
-<!doctype html><title>sift</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>sift</title>
+<link rel="stylesheet" href="style.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#">sift</a>
+  <div class="runbox">
+    <div class="runstate" id="runstate">idle</div>
+    <div class="bar"><div id="runbar"></div></div>
+  </div>
+  <button id="runtoggle" class="btn">Run</button>
+</header>
+
+<section id="runpanel" class="panel" hidden>
+  <div class="runform">
+    <label>Scene <select id="runscene"></select></label>
+    <label class="chk"><input type="checkbox" id="st-search" checked> search</label>
+    <label class="chk"><input type="checkbox" id="st-enrich" checked> enrich</label>
+    <label class="chk"><input type="checkbox" id="st-scan" checked> scan</label>
+    <label class="chk"><input type="checkbox" id="st-force"> ignore caches</label>
+    <button id="runstart" class="btn primary">Start</button>
+    <button id="runcancel" class="btn">Cancel run</button>
+  </div>
+  <ol id="log" class="log"></ol>
+</section>
+
+<main id="list-view">
+  <div class="filters">
+    <input id="q" type="search" placeholder="Search name, description, language" autocomplete="off">
+    <select id="f-scene"><option value="">All scenes</option></select>
+    <select id="f-status">
+      <option value="open">Not skipped</option>
+      <option value="">Any status</option>
+      <option value="new">new</option>
+      <option value="shortlist">shortlist</option>
+      <option value="digging">digging</option>
+      <option value="reported">reported</option>
+      <option value="skipped">skipped</option>
+    </select>
+    <select id="f-verdict">
+      <option value="">Any verdict</option>
+      <option value="none">Unmarked</option>
+      <option value="real">Real</option>
+      <option value="dud">Dud</option>
+    </select>
+    <select id="f-sort">
+      <option value="score">Sort: score</option>
+      <option value="paired">Sort: paired files</option>
+      <option value="stars">Sort: popularity</option>
+      <option value="pushed">Sort: last push</option>
+    </select>
+    <label class="chk"><input type="checkbox" id="f-all"> include filtered out</label>
+    <label class="chk"><input type="checkbox" id="f-unscanned"> include unscanned</label>
+  </div>
+  <p class="count" id="count"></p>
+  <div class="rows" id="rows"></div>
+  <button id="more" class="btn wide" hidden>Show more</button>
+</main>
+
+<main id="detail-view" hidden></main>
+</body>
+</html>

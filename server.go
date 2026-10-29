@@ -16,7 +16,12 @@ import (
 
 func (a *App) Routes(static fs.FS) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /", http.FileServer(http.FS(static)))
+	files := http.FileServer(http.FS(static))
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		// embedded files have no modtime, so make the browser revalidate instead of guessing
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	})
 	mux.HandleFunc("GET /api/state", a.hState)
 	mux.HandleFunc("GET /api/repos", a.hRepos)
 	mux.HandleFunc("GET /api/repo", a.hRepo)
@@ -170,6 +175,7 @@ type repoSummary struct {
 	Advisories   int            `json:"advisories"`
 	ContactKinds []string       `json:"contact_kinds"`
 	CVEPath      string         `json:"cve_path,omitempty"`
+	Verdict      string         `json:"verdict,omitempty"`
 	Scanned      bool           `json:"scanned"`
 	ScanError    string         `json:"scan_error,omitempty"`
 	Sinks        int            `json:"sinks"`
@@ -185,7 +191,7 @@ func summarize(r *Repo) repoSummary {
 		Key: r.Key, Source: r.Source, Name: r.Name, URL: r.URL, Owner: r.Owner, Description: r.Description,
 		Language: r.Language, Popularity: r.Popularity, PopLabel: r.PopLabel, Categories: r.Categories,
 		Status: r.Status, HasNotes: r.Notes != "", Score: r.Score, Filter: r.Filter, FirstSeen: r.FirstSeen,
-		CVEPath: r.CVEPath,
+		CVEPath: r.CVEPath, Verdict: r.Verdict,
 	}
 	if e := r.Enriched; e != nil {
 		if !e.PushedAt.IsZero() {
@@ -250,8 +256,9 @@ func (a *App) hRepo(w http.ResponseWriter, r *http.Request) {
 func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Key    string  `json:"key"`
-		Status *string `json:"status"`
-		Notes  *string `json:"notes"`
+		Status  *string `json:"status"`
+		Notes   *string `json:"notes"`
+		Verdict *string `json:"verdict"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		writeErr(w, 400, err.Error())
@@ -259,6 +266,10 @@ func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Status != nil && !validStatus[*req.Status] {
 		writeErr(w, 400, "unknown status")
+		return
+	}
+	if req.Verdict != nil && !validVerdict[*req.Verdict] {
+		writeErr(w, 400, "unknown verdict")
 		return
 	}
 	found := false
@@ -274,6 +285,9 @@ func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 		if req.Notes != nil {
 			rp.Notes = *req.Notes
 		}
+		if req.Verdict != nil && *req.Verdict != rp.Verdict {
+			setVerdict(rp, *req.Verdict)
+		}
 		rp.UpdatedAt = time.Now()
 	})
 	if !found {
@@ -281,6 +295,21 @@ func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+func setVerdict(rp *Repo, v string) {
+	rp.Verdict, rp.VerdictAt, rp.VerdictParts = v, nil, nil
+	if v == "" {
+		return
+	}
+	now := time.Now()
+	rp.VerdictAt = &now
+	if rp.Score != nil {
+		rp.VerdictParts = map[string]float64{}
+		for k, p := range rp.Score.Parts {
+			rp.VerdictParts[k] = p
+		}
+	}
 }
 
 func (a *App) hRepoBulk(w http.ResponseWriter, r *http.Request) {

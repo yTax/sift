@@ -486,3 +486,22 @@ func TestHistoryPeaks(t *testing.T) {
 		t.Errorf("history: 0=%v 1=%v 2=%v 5=%v 15=%v", h(0), h(1), h(2), h(5), h(15))
 	}
 }
+
+func TestVerdictKeepsScoreSnapshot(t *testing.T) {
+	r := &Repo{Score: &Score{Parts: map[string]float64{"sinks": 7, "pairing": 4}}}
+	setVerdict(r, "real")
+	if r.Verdict != "real" || r.VerdictAt == nil || r.VerdictParts["pairing"] != 4 {
+		t.Fatalf("got %+v", r)
+	}
+	r.Score.Parts["pairing"] = 9 // later rescoring must not rewrite what the verdict was based on
+	if r.VerdictParts["pairing"] != 4 {
+		t.Error("snapshot shares the live parts map")
+	}
+	setVerdict(r, "")
+	if r.Verdict != "" || r.VerdictAt != nil || r.VerdictParts != nil {
+		t.Errorf("clearing left %+v", r)
+	}
+	if validVerdict["maybe"] {
+		t.Error("unknown verdicts must be rejected")
+	}
+}
