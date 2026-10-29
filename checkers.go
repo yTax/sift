@@ -479,9 +479,14 @@ var (
 	}
 )
 
+// serverSet are request members the framework or app fills in, not the client: the temp path
+// multer picked for an upload, the logged-in user, the session.
+var serverSet = regexp.MustCompile(`^\.(file|files|user|session|app|ip|ips|method|protocol|log|id|auth|locals)\b`)
+
 func containsName(s string, names map[string]bool) string {
-	for _, id := range identRe.FindAllString(s, -1) {
-		if names[id] {
+	for _, loc := range identRe.FindAllStringIndex(s, -1) {
+		id := s[loc[0]:loc[1]]
+		if names[id] && !serverSet.MatchString(s[loc[1]:]) {
 			return id
 		}
 	}

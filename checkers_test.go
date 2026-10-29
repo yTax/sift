@@ -323,6 +323,15 @@ function load() {
   });
 }`, false},
 
+	{"tool-path-to-fs", "multer temp path is server-set", "routes.js", `
+router.post('/avatar', upload.single('file'), async (req, res) => {
+  const clean = sanitize(await fsp.readFile(req.file.path, 'utf8'));
+  await fsp.rm(req.file.path, { force: true });
+});`, false},
+	{"tool-path-to-fs", "original filename from the client still counts", "routes.js", `
+router.post('/avatar', upload.single('file'), async (req, res) => {
+  await fsp.writeFile(path.join(UPLOADS, req.body.name), data);
+});`, true},
 }
 
 func TestCheckers(t *testing.T) {

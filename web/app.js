@@ -109,9 +109,11 @@ function filtered() {
   const verdict = document.getElementById("f-verdict").value;
   const all = document.getElementById("f-all").checked;
   const unscanned = document.getElementById("f-unscanned").checked;
+  const high = document.getElementById("f-high").checked;
   const out = state.repos.filter((r) => {
     if (!all && !r.filter.pass) return false;
     if (!unscanned && !r.scanned) return false;
+    if (high && !r.high_findings) return false;
     if (scene && !(r.categories || []).includes(scene)) return false;
     if (status === "open" ? r.status === "skipped" : status && r.status !== status) return false;
     if (verdict === "none" ? r.verdict : verdict && r.verdict !== verdict) return false;
@@ -125,7 +127,7 @@ function filtered() {
   const key = {
     score: (r) => (r.score ? r.score.total : -1),
     paired: (r) => r.paired || 0,
-    findings: (r) => (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
+    findings: (r) => (r.high_findings || 0) * 1e6 + (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
     stars: (r) => r.popularity || 0,
     pushed: (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0),
   }[sort];
@@ -141,7 +143,8 @@ function rowEl(r) {
       r.description ? h("div", { class: "desc" }, r.description) : null),
     h("div", { class: "col-extra chips" },
       routeChip(r.cve_path),
-      r.findings ? h("span", { class: "chip bad" }, r.findings + " finding" + (r.findings > 1 ? "s" : "")) : null,
+      r.high_findings ? h("span", { class: "chip bad" }, r.high_findings + " high") : null,
+      r.findings ? h("span", { class: "chip warn" }, r.findings + " finding" + (r.findings > 1 ? "s" : "")) : null,
       r.paired ? h("span", { class: "chip" }, r.paired + " paired") : null,
       r.advisories > 0 ? h("span", { class: "chip" }, r.advisories + " GHSA") : null,
       r.sec_issues > 0 ? h("span", { class: "chip warn" }, r.sec_issues + " open security issue" + (r.sec_issues > 1 ? "s" : "")) : null),
@@ -449,7 +452,7 @@ function route() {
 }
 
 function init() {
-  for (const id of ["q", "f-scene", "f-status", "f-verdict", "f-sort", "f-all", "f-unscanned"]) {
+  for (const id of ["q", "f-scene", "f-status", "f-verdict", "f-sort", "f-high", "f-all", "f-unscanned"]) {
     document.getElementById(id).addEventListener(id === "q" ? "input" : "change", () => {
       state.shown = PAGE;
       renderList();

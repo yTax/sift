@@ -193,6 +193,7 @@ type repoSummary struct {
 	Auth         int            `json:"auth"`
 	Paired       int            `json:"paired"`
 	Findings     int            `json:"findings"`
+	HighFindings int            `json:"high_findings"`
 	Classes      map[string]int `json:"classes,omitempty"`
 	FirstSeen    time.Time      `json:"first_seen"`
 }
@@ -226,6 +227,11 @@ func summarize(r *Repo) repoSummary {
 		s.Sinks, s.Surface, s.Auth, s.Classes = sc.SinkHits, sc.SurfaceHits, sc.AuthHits, sc.ByClass
 		s.Paired = sc.PairedFiles
 		s.Findings = len(sc.Findings)
+		for _, f := range sc.Findings {
+			if f.Confidence == "high" {
+				s.HighFindings++
+			}
+		}
 	}
 	return s
 }
