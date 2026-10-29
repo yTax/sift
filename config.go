@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 )
@@ -88,7 +89,7 @@ func defaultSettings() Settings {
 		MaxRepoSizeMB:             60,
 		ScanMaxFileKB:             512,
 		SkipTests:                 true,
-		Concurrency:               4,
+		Concurrency:               min(8, max(2, runtime.NumCPU()/2)),
 		Weights: Weights{
 			Sinks: 3, Surface: 2, Auth: 2, History: 1.5, Responsiveness: 1.5, Freshness: 1, Contact: 1, CVEPath: 2, Pairing: 3, Findings: 4,
 		},

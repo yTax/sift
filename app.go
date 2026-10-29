@@ -577,7 +577,7 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 	// GitHub spends about a second per repo answering the GraphQL query no matter how it's
 	// batched, so batches run side by side. The per-repo REST checks get their own pool so a
 	// slow one never holds up the next batch.
-	gqlSem := make(chan struct{}, max(1, s.Concurrency))
+	gqlSem := make(chan struct{}, min(4, max(1, s.Concurrency))) // more trips GitHub's secondary rate limit
 	restSem := make(chan struct{}, max(1, 2*s.Concurrency))
 	var wg sync.WaitGroup
 
@@ -821,7 +821,7 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 			if t.url == "" {
 				continue
 			}
-			if !force && r.Scan != nil && r.Scan.Ref == t.ref && r.Scan.Error == "" {
+			if !force && r.Scan != nil && r.Scan.Ref == t.ref && r.Scan.Error == "" && r.Scan.Engine >= scanEngine {
 				continue
 			}
 			targets = append(targets, t)

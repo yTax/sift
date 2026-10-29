@@ -244,6 +244,7 @@ type Pattern struct {
 	Class   string  `yaml:"class" json:"class"`
 	Weight  float64 `yaml:"weight" json:"weight"`
 	re      *regexp.Regexp
+	lits    []string       // every match contains one of these (lowercase); nil = no shortcut
 }
 
 type SinkProfile struct {
@@ -304,6 +305,7 @@ func loadSinkProfiles(dir string) ([]*SinkProfile, []LoadError) {
 					continue
 				}
 				list[i].re = re
+				list[i].lits = requiredLits(list[i].Pattern)
 				if list[i].Weight <= 0 {
 					list[i].Weight = 1
 				}

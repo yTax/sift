@@ -332,6 +332,31 @@ router.post('/avatar', upload.single('file'), async (req, res) => {
 router.post('/avatar', upload.single('file'), async (req, res) => {
   await fsp.writeFile(path.join(UPLOADS, req.body.name), data);
 });`, true},
+	{"tool-path-to-fs", "flask int converter", "routes.py", `
+@api_bp.route('/mailboxes/<address>/messages/<int:msg_id>', methods=['DELETE'])
+def delete_message(address, msg_id):
+    shutil.rmtree(os.path.join(config.ATTACHMENTS_PATH, str(msg_id)), ignore_errors=True)
+`, false},
+	{"tool-path-to-fs", "flask string param still counts", "routes.py", `
+@api_bp.route('/files/<name>', methods=['DELETE'])
+def delete_file(name):
+    os.remove(os.path.join(UPLOADS, name))
+`, true},
+	{"tool-path-to-fs", "fastapi int annotation", "api.py", `
+@app.delete("/items/{item_id}")
+def delete_item(item_id: int, keep: bool = False):
+    shutil.rmtree(os.path.join(DATA, str(item_id)))
+`, false},
+	{"sql-from-input", "zod number in tool schema", "src/index.ts", `
+server.tool("get_row", "Get a row", { id: z.number() }, async ({ id }) => {
+  const rows = await db.all(` + "`SELECT * FROM t WHERE id = ${id}`" + `);
+  return { content: [{ type: "text", text: JSON.stringify(rows) }] };
+});`, false},
+	{"sql-from-input", "zod string in tool schema still counts", "src/index.ts", `
+server.tool("find", "Find", { name: z.string() }, async ({ name }) => {
+  const rows = await db.all(` + "`SELECT * FROM t WHERE name = '${name}'`" + `);
+  return { content: [{ type: "text", text: JSON.stringify(rows) }] };
+});`, true},
 }
 
 func TestCheckers(t *testing.T) {

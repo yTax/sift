@@ -2,7 +2,6 @@ package main
 
 import (
 	"archive/zip"
-	"bufio"
 	"bytes"
 	"io"
 	"math"
@@ -73,6 +72,10 @@ type scanOpts struct {
 	Checkers    []*Checker
 }
 
+// scanEngine goes up whenever the scanner, sink profiles or checkers change what a scan finds,
+// so the next run rescans repos whose stored scan is older even if their code hasn't moved.
+const scanEngine = 2
+
 const (
 	maxSinkHitsKept    = 250
 	maxSurfaceHitsKept = 60
@@ -122,7 +125,7 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 			byExt[x] = append(byExt[x], p)
 		}
 	}
-	res := &ScanResult{At: time.Now(), ByClass: map[string]int{}}
+	res := &ScanResult{At: time.Now(), ByClass: map[string]int{}, Engine: scanEngine}
 	var sinks, surface, auth []Hit
 	var findings []Finding
 
@@ -166,10 +169,11 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 		if len(opts.Checkers) > 0 && len(findings) < maxFindingsPerRepo {
 			findings = append(findings, runCheckers(name, b, opts.Checkers)...)
 		}
+		fb := fileBytes{b: b, lower: bytes.ToLower(b), starts: lineStartsBytes(b)}
 		for _, p := range profs {
-			scanFile(name, b, p.Surface, "surface", &surface, &res.SurfaceHits, nil, nil)
-			scanFile(name, b, p.Sinks, "sink", &sinks, &res.SinkHits, &res.WeightedSinks, res.ByClass)
-			scanFile(name, b, p.Auth, "auth", &auth, &res.AuthHits, nil, nil)
+			scanFile(name, fb, p.Surface, "surface", &surface, &res.SurfaceHits, nil, nil)
+			scanFile(name, fb, p.Sinks, "sink", &sinks, &res.SinkHits, &res.WeightedSinks, res.ByClass)
+			scanFile(name, fb, p.Auth, "auth", &auth, &res.AuthHits, nil, nil)
 		}
 	}
 
@@ -197,21 +201,54 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	return res, nil
 }
 
-func scanFile(name string, b []byte, pats []Pattern, kind string, hits *[]Hit, count *int, weighted *float64, byClass map[string]int) {
+type fileBytes struct {
+	b, lower []byte
+	starts   []int
+}
+
+// line returns line i without its line ending, so patterns ending in $ behave as per-line.
+func (f fileBytes) line(i int) []byte {
+	end := len(f.b)
+	if i+1 < len(f.starts) {
+		end = f.starts[i+1]
+	}
+	l := f.b[f.starts[i]:end]
+	for len(l) > 0 && (l[len(l)-1] == 0x0a || l[len(l)-1] == 0x0d) {
+		l = l[:len(l)-1]
+	}
+	return l
+}
+
+// matchLines returns the lines pt matches, one line at a time. Patterns with required literals
+// only run on lines containing one of them (see litfilter.go); the few without run on every line.
+func (pt Pattern) matchLines(f fileBytes) []int {
+	var out []int
+	if pt.lits != nil {
+		for _, i := range litLines(f.lower, f.starts, pt.lits) {
+			if pt.re.Match(f.line(i)) {
+				out = append(out, i)
+			}
+		}
+		return out
+	}
+	if !pt.re.Match(f.b) {
+		return nil
+	}
+	for i := range f.starts {
+		if pt.re.Match(f.line(i)) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func scanFile(name string, f fileBytes, pats []Pattern, kind string, hits *[]Hit, count *int, weighted *float64, byClass map[string]int) {
 	for _, pt := range pats {
-		if pt.re == nil || !pt.re.Match(b) {
+		if pt.re == nil {
 			continue
 		}
-		sc := bufio.NewScanner(bytes.NewReader(b))
-		sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-		line := 0
 		perFile := 0
-		for sc.Scan() {
-			line++
-			t := sc.Bytes()
-			if !pt.re.Match(t) {
-				continue
-			}
+		for _, line := range pt.matchLines(f) {
 			perFile++
 			*count++
 			if weighted != nil {
@@ -226,11 +263,11 @@ func scanFile(name string, b []byte, pats []Pattern, kind string, hits *[]Hit, c
 				byClass[pt.Class]++
 			}
 			if perFile <= 8 {
-				snip := strings.TrimSpace(string(t))
+				snip := strings.TrimSpace(string(f.line(line)))
 				if len(snip) > 220 {
 					snip = snip[:220] + "…"
 				}
-				*hits = append(*hits, Hit{Path: name, Line: line, Kind: kind, Label: pt.Label, Class: pt.Class, Weight: pt.Weight, Snippet: snip})
+				*hits = append(*hits, Hit{Path: name, Line: line + 1, Kind: kind, Label: pt.Label, Class: pt.Class, Weight: pt.Weight, Snippet: snip})
 			}
 		}
 	}
@@ -325,4 +362,14 @@ func profilesFor(c *Category, all []*SinkProfile) []*SinkProfile {
 		}
 	}
 	return out
+}
+
+func lineStartsBytes(b []byte) []int {
+	st := []int{0}
+	for i, c := range b {
+		if c == 0x0a {
+			st = append(st, i+1)
+		}
+	}
+	return st
 }

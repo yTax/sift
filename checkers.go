@@ -46,6 +46,8 @@ type checkerLang struct {
 	Arg string `yaml:"arg"`
 
 	sinks, guards, requires, lineGuards []*regexp.Regexp
+	any                                 *regexp.Regexp // all sinks in one, to skip files that have none
+	anyLits                             []string       // literals one of which every sink needs; nil = none known
 }
 
 type Finding struct {
@@ -92,7 +94,10 @@ func loadCheckers(extraDir string) ([]*Checker, []LoadError) {
 			if l.sinks, err = compileAll(l.Sinks); err == nil {
 				if l.guards, err = compileAll(l.Guards); err == nil {
 					if l.requires, err = compileAll(l.Requires); err == nil {
-						l.lineGuards, err = compileAll(l.LineGuards)
+						if l.lineGuards, err = compileAll(l.LineGuards); err == nil && len(l.Sinks) > 0 {
+							l.any, err = regexp.Compile("(?m)(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
+							l.anyLits = requiredLits("(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
+						}
 					}
 				}
 			}
@@ -201,6 +206,12 @@ var (
 	goInputType = regexp.MustCompile(`gin\.Context|echo\.Context|fiber\.Ctx|CallToolRequest|mcp\.\w*Request`)
 
 	identRe = regexp.MustCompile(`[A-Za-z_$][\w$]*`)
+
+	// Inputs typed as numbers, booleans, UUIDs or enums by the framework can't carry ../ or SQL.
+	flaskConverter = regexp.MustCompile(`<(?:int|float|uuid):(\w+)>`)
+	pyParamType    = regexp.MustCompile(`^\s*\*{0,2}(\w+)\s*:\s*([\w.\[\]| ]+?)\s*(=|$)`)
+	pySafeType     = regexp.MustCompile(`^(Optional\[)?(int|float|bool|UUID|uuid\.UUID|datetime|date|Decimal|PositiveInt|NonNegativeInt|conint)\]?(\s*\|\s*None)?$`)
+	zodSafe        = regexp.MustCompile(`(\w+)\s*:\s*z\.(number|boolean|enum|nativeEnum|literal|bigint|date)\(`)
 
 	typeWords = map[string]bool{"string": true, "number": true, "boolean": true, "any": true, "unknown": true, "object": true,
 		"void": true, "null": true, "undefined": true, "true": true, "false": true, "async": true, "await": true, "const": true,
@@ -347,13 +358,21 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 			names := paramNames(params)
 			from := max(0, headOff-600)
 			registered := false
+			safe := map[string]bool{}
 			if locs := jsRegister.FindAllStringIndex(src[from:headOff], -1); len(locs) > 0 {
 				between := src[from+locs[len(locs)-1][0] : headOff]
 				// still inside the registering call's parentheses
 				registered = !strings.Contains(between, ";") && strings.Count(between, "(") > strings.Count(between, ")")
+				// tool schema fields declared as numbers, booleans or enums can't carry a payload
+				for _, m := range zodSafe.FindAllStringSubmatch(between, -1) {
+					safe[m[1]] = true
+				}
 			}
 			handler := registered || jsHandlerSig.MatchString(params) || jsVerbName[name]
 			for _, n := range names {
+				if safe[n] {
+					continue
+				}
 				if registered || handler && jsInputNames[n] {
 					f.inputs = append(f.inputs, n)
 				}
@@ -405,6 +424,32 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 	return out
 }
 
+// pyTypedSafe returns the parameters annotated with a type that can't carry a payload.
+func pyTypedSafe(params string) map[string]bool {
+	safe := map[string]bool{}
+	depth, startAt := 0, 0
+	split := func(piece string) {
+		if m := pyParamType.FindStringSubmatch(piece); m != nil && pySafeType.MatchString(strings.TrimSpace(m[2])) {
+			safe[m[1]] = true
+		}
+	}
+	for i, c := range params {
+		switch c {
+		case '[', '(':
+			depth++
+		case ']', ')':
+			depth--
+		case ',':
+			if depth == 0 {
+				split(params[startAt:i])
+				startAt = i + 1
+			}
+		}
+	}
+	split(params[startAt:])
+	return safe
+}
+
 func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 	var out []fnSpan
 	for _, m := range pyHead.FindAllStringSubmatchIndex(src, -1) {
@@ -436,13 +481,17 @@ func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 		}
 		f := fnSpan{name: name, head: head, start: sigEnd, end: end}
 		registered := false
+		safe := pyTypedSafe(params)
 		for j := head - 1; j >= 0 && strings.HasPrefix(strings.TrimSpace(lines[j]), "@"); j-- {
 			if pyRegister.MatchString(lines[j]) {
 				registered = true
 			}
+			for _, m := range flaskConverter.FindAllStringSubmatch(lines[j], -1) {
+				safe[m[1]] = true
+			}
 		}
 		for _, n := range paramNames(params) {
-			if n == "ctx" || n == "context" {
+			if n == "ctx" || n == "context" || safe[n] {
 				continue
 			}
 			if registered || pyInputs[n] {
@@ -499,16 +548,22 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 	if lang == "" || len(checkers) == 0 || checkerSkipPath.MatchString(name) {
 		return nil
 	}
+	src := string(b)
+	lowerSrc := strings.ToLower(src)
 	var active []*Checker
 	for _, c := range checkers {
-		if c.Langs[lang] != nil {
+		l := c.Langs[lang]
+		if l == nil || l.any == nil || l.anyLits != nil && !containsAnyLit(lowerSrc, l.anyLits) {
+			continue
+		}
+		if l.any.MatchString(src) {
 			active = append(active, c)
 		}
 	}
-	if len(active) == 0 {
+	wp := lang == "php" && (strings.Contains(src, "wp_ajax_") || strings.Contains(src, "register_rest_route"))
+	if len(active) == 0 && !wp {
 		return nil
 	}
-	src := string(b)
 	lines := strings.Split(src, "\n")
 	starts := lineStarts(src)
 	var fns []fnSpan
@@ -544,7 +599,10 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 		for n := range direct {
 			tainted[n] = true
 		}
-		for pass := 0; pass < 2; pass++ {
+		body := strings.Join(lines[f.start:f.end+1], "\n")
+		// most functions aren't handlers and read no request data: only no-input checkers apply
+		hasInput := len(direct) > 0 || source != nil && source.MatchString(body)
+		for pass := 0; hasInput && pass < 2; pass++ {
 			for i := f.start; i <= f.end; i++ {
 				for _, re := range assignRes[lang] {
 					m := re.FindStringSubmatch(lines[i])
@@ -574,12 +632,12 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 				}
 			}
 		}
-		body := strings.Join(lines[f.start:f.end+1], "\n")
 		for _, c := range active {
 			l := c.Langs[lang]
-			if len(l.requires) > 0 && !anyMatch(l.requires, body) {
+			if !hasInput && !l.NoInput || !l.any.MatchString(body) || len(l.requires) > 0 && !anyMatch(l.requires, body) {
 				continue
 			}
+			guardAt := -2 // first line with a guard, looked up on the first sink hit (-1: none)
 			for i := f.start; i <= f.end; i++ {
 				line := lines[i]
 				if strings.HasPrefix(strings.TrimSpace(line), comment) {
@@ -624,8 +682,16 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 				if anyMatch(l.lineGuards, line) {
 					continue
 				}
-				before := strings.Join(lines[f.start:i+1], "\n")
-				if anyMatch(l.guards, before) {
+				if guardAt == -2 {
+					guardAt = -1
+					for j := f.start; j <= f.end && len(l.guards) > 0; j++ {
+						if anyMatch(l.guards, lines[j]) {
+							guardAt = j
+							break
+						}
+					}
+				}
+				if guardAt >= 0 && guardAt <= i {
 					continue
 				}
 				k := key{c.ID, i}
@@ -646,7 +712,7 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 			}
 		}
 	}
-	if lang == "php" {
+	if wp {
 		out = append(out, wpAuthzFindings(name, src, lines, starts, fns)...)
 	}
 	sort.Slice(out, func(i, j int) bool {
