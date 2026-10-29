@@ -1,5 +1,7 @@
 # Plan 12 — Bug checkers: from "this repo has sinks" to "this line looks like bug X"
 
+**Status:** layers 1 and 2 built (`checkers.go`, `defaults/checkers`, `defaults/semgrep`, `taint.go`). Added beyond the list below: `sql-from-input`, `xss-from-input` and `wp-missing-authz` (WordPress AJAX/REST handlers without capability or nonce checks), PHP support, and noise fixes from real runs (handler-only inputs, path/host-only arguments, server-set request fields, typed route params, skipping build scripts).
+
 ## Why
 
 Today's scan is grep. It sees `exec(` and stops, so a repo's hit list is hundreds of lines you still have to read yourself. A checker asks one precise question about one bug class ("does a tool argument reach `readFile` with no containment check?") and answers with a file, a line and a reason. Fewer hits, each one worth opening. This is the step where sift starts pointing at bugs instead of at repos.

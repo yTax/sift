@@ -39,13 +39,15 @@ Done so far:
 - **3a (pairing)**, scored as `pairing`; hot files show on the repo page.
 - **3d (`cve_path`)**.
 - **8a, basic UI**: ranked list, repo page, run panel, real/dud marks. The scenes/settings screen is still to do.
+- **4a (known bugs)**, minus OSV (needs 3c's package names): published advisories and security-looking open issues.
+- **12 (checkers), layers 1 and 2**: eight checkers for JS/TS, Python, Go and PHP, tightened against real repos; Semgrep confirms findings on the top 30 (plan 7, `taint.go`).
+- **Scan speed**: literal prefilter (`litfilter.go`), concurrency from the CPU count, `scanEngine` versioning instead of forced rescans.
 
 Next, in order:
-1. **4a (known bugs)**: stop flagging bugs that are already reported.
-2. **12 (checkers), layer 1**: sift points at lines. This is the core of finding bugs on its own; MCP bug classes first.
-3. **4b → 4c (variants)**: by hand first, then the daily advisory feed.
-4. **5 (CLI) → 1 (SQLite) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with findings, not just repos. Deployment details get settled with the real server config at that point.
-5. **7 + 12 layer 2 (Semgrep with sift's rules)**, then **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough marks.
+1. **Review the checker findings** from the first full run; every false positive becomes a fixture and a fix.
+2. **4b → 4c (variants)**: by hand first, then the daily advisory feed.
+3. **5 (CLI) → 1 (SQLite) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings, not just repos. Deployment details get settled with the real server config at that point.
+4. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough marks.
 6. The rest as they become useful: 2, 3b/3c, 9, 10, 11, the settings screen.
 
 **Ruled out:** running a target app and firing payloads at it (dynamic exploit testing). sift never runs downloaded code. **Maybe later:** a free local LLM on the Oracle box for first-pass triage. No paid API.

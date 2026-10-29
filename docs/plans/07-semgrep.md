@@ -1,5 +1,7 @@
 # Plan 07 — Semgrep taint pass on the top N
 
+**Status:** built as `taint.go`, with a change from the design below: instead of registry rulesets, Semgrep runs sift's own taint rules (`defaults/semgrep/*.yaml`) and only over the files that already have plan 12 checker findings. A finding Semgrep flags on the same line for the same class is marked `confirmed`. It runs automatically after a scan (`semgrep_auto`, top `semgrep_top_n` = 30). Semgrep lives in its own venv (`%LOCALAPPDATA%\sift\semgrep-venv`) so it can't disturb the system Python.
+
 ## Why
 
 The scanner greps for sinks with regex. Regex can't tell whether untrusted input *actually reaches* a sink — it just sees the sink. Semgrep's taint mode can follow data flow from source to sink, which is the difference between "this file has an `exec`" and "user input flows into this `exec`." Running it on everything would be slow; running it on just your top N confirmed-interesting repos is cheap and cuts false leads before you open them.
