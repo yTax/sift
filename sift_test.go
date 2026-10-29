@@ -303,3 +303,29 @@ func TestScanZip(t *testing.T) {
 		}
 	}
 }
+
+func TestRunIDsStayUniquePastCap(t *testing.T) {
+	st, err := openStore(filepath.Join(t.TempDir(), "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[int]bool{}
+	var last int
+	for i := 0; i < 130; i++ {
+		last = st.AddRun(RunRecord{})
+		if seen[last] {
+			t.Fatalf("run %d got duplicate id %d", i, last)
+		}
+		seen[last] = true
+	}
+	st.FinishRun(last, func(r *RunRecord) { r.Outcome = "finished" })
+	n := 0
+	for _, r := range st.Runs() {
+		if r.Outcome == "finished" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("FinishRun touched %d runs, want 1", n)
+	}
+}

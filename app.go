@@ -555,7 +555,15 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 	if batch <= 0 {
 		batch = 8
 	}
+	var mu sync.Mutex
 	done := 0
+	tick := func() { // counts a repo once its metadata is actually stored, not when its goroutine starts
+		mu.Lock()
+		done++
+		d := done
+		mu.Unlock()
+		a.setProgress("enrich", d, len(targets))
+	}
 	a.setProgress("enrich", 0, len(targets))
 
 	sem := make(chan struct{}, max(1, s.Concurrency))
@@ -603,7 +611,7 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 					}
 					r.Enriched.At, r.Enriched.Error = time.Now(), msg
 				})
-				done++
+				tick()
 				continue
 			}
 			wg.Add(1)
@@ -649,10 +657,9 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 						r.Contacts = nil
 					}
 				})
+				tick()
 			}()
-			done++
 		}
-		a.setProgress("enrich", done, len(targets))
 	}
 	wg.Wait()
 	a.setProgress("enrich", len(targets), len(targets))

@@ -221,7 +221,11 @@ func (s *Store) GetJSON(key string) ([]byte, bool) {
 
 func (s *Store) AddRun(r RunRecord) int {
 	s.mu.Lock()
-	r.ID = len(s.runs) + 1
+	// not len+1: the list is capped, so that would hand out the same ID forever once it's full
+	r.ID = 1
+	if n := len(s.runs); n > 0 {
+		r.ID = s.runs[n-1].ID + 1
+	}
 	s.runs = append(s.runs, r)
 	if len(s.runs) > 100 {
 		s.runs = s.runs[len(s.runs)-100:]
