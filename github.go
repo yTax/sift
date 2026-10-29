@@ -25,9 +25,9 @@ type HTTP struct {
 	client *http.Client
 	// dl fetches archives. It has no overall timeout, since a big zip on a slow, shared line
 	// can take minutes; downloadTimeout bounds it instead, and a slow first byte still fails fast.
-	dl *http.Client
-	token  string
-	log    func(string, ...any)
+	dl    *http.Client
+	token string
+	log   func(string, ...any)
 
 	mu     sync.Mutex
 	waitTo map[string]time.Time // resource -> don't call before

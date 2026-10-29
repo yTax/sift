@@ -38,11 +38,11 @@ type Enrichment struct {
 	// reports nobody has fixed yet. Information for you, not a filter.
 	KnownAdvisories []KnownAdvisory `json:"known_advisories,omitempty"`
 	SecurityIssues  []IssueRef      `json:"security_issues,omitempty"`
-	RecentCommits       int        `json:"recent_commits"`
-	Topics              []string   `json:"topics,omitempty"`
-	Homepage            string     `json:"homepage,omitempty"`
-	License             string     `json:"license,omitempty"`
-	Error               string     `json:"error,omitempty"`
+	RecentCommits   int             `json:"recent_commits"`
+	Topics          []string        `json:"topics,omitempty"`
+	Homepage        string          `json:"homepage,omitempty"`
+	License         string          `json:"license,omitempty"`
+	Error           string          `json:"error,omitempty"`
 }
 
 type KnownAdvisory struct {
@@ -90,8 +90,9 @@ type ScanResult struct {
 	PairedWeight float64   `json:"paired_weight"`
 	HotFiles     []HotFile `json:"hot_files,omitempty"` // best first: where to start reading
 	// Checker results (plan 12): specific lines that look like a known bug class.
-	Findings       []Finding `json:"findings,omitempty"`
-	FindingsWeight float64   `json:"findings_weight"`
+	Findings       []Finding   `json:"findings,omitempty"`
+	FindingsWeight float64     `json:"findings_weight"`
+	Semgrep        *SemgrepRun `json:"semgrep,omitempty"` // last confirmation pass over this scan's findings
 }
 
 type HotFile struct {

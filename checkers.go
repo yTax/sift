@@ -51,15 +51,16 @@ type checkerLang struct {
 }
 
 type Finding struct {
-	Checker    string `json:"checker"`
-	Class      string `json:"class"`
-	Path       string `json:"path"`
-	Line       int    `json:"line"`
-	Func       string `json:"func,omitempty"`
-	Via        string `json:"via,omitempty"` // the input name that reached the sink
-	Message    string `json:"message"`
-	Snippet    string `json:"snippet"`
-	Confidence string `json:"confidence"` // high: an input reaches the sink directly; medium: through assignments
+	Checker    string  `json:"checker"`
+	Class      string  `json:"class"`
+	Path       string  `json:"path"`
+	Line       int     `json:"line"`
+	Func       string  `json:"func,omitempty"`
+	Via        string  `json:"via,omitempty"` // the input name that reached the sink
+	Message    string  `json:"message"`
+	Snippet    string  `json:"snippet"`
+	Confidence string  `json:"confidence"`          // high: an input reaches the sink directly; medium: through assignments
+	Confirmed  bool    `json:"confirmed,omitempty"` // Semgrep's taint analysis flagged the same line (taint.go)
 	Weight     float64 `json:"weight"`
 }
 
@@ -199,8 +200,8 @@ var (
 	pyRegister = regexp.MustCompile(`^\s*@\s*[\w.]*\.?(tool|get|post|put|patch|delete|route|api_route|websocket|call_tool|resource|prompt)\b`)
 	pyInputs   = map[string]bool{"request": true}
 
-	goHead      = regexp.MustCompile(`func\s*(?:\([^)]*\)\s*)?(\w*)\s*\(([^)]*)\)`)
-	phpHead     = regexp.MustCompile(`\bfunction\s*&?\s*(\w*)\s*\(([^)]*)\)`)
+	goHead  = regexp.MustCompile(`func\s*(?:\([^)]*\)\s*)?(\w*)\s*\(([^)]*)\)`)
+	phpHead = regexp.MustCompile(`\bfunction\s*&?\s*(\w*)\s*\(([^)]*)\)`)
 	// framework contexts and MCP tool requests are always inbound; *http.Request only counts next
 	// to a ResponseWriter, since client code passes outbound requests around too
 	goInputType = regexp.MustCompile(`gin\.Context|echo\.Context|fiber\.Ctx|CallToolRequest|mcp\.\w*Request`)

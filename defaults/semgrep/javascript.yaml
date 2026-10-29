@@ -1,0 +1,119 @@
+# sift's Semgrep taint rules for JavaScript/TypeScript (see python.yaml for how they're used).
+# Sources: Express-style request data and the arguments of MCP tool handlers.
+rules:
+  - id: sift.path-traversal.js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Input reaches a filesystem path
+    metadata: { class: path-traversal }
+    mode: taint
+    pattern-sources: &js-sources
+      - pattern: $REQ.query
+      - pattern: $REQ.body
+      - pattern: $REQ.params
+      - pattern: $REQ.cookies
+      - patterns:
+          - pattern-either:
+              - pattern-inside: $S.tool(..., ($ARG) => { ... })
+              - pattern-inside: $S.tool(..., async ($ARG) => { ... })
+              - pattern-inside: $S.registerTool(..., async ($ARG) => { ... })
+              - pattern-inside: $S.registerTool(..., ($ARG) => { ... })
+          - pattern: $ARG
+      - patterns:
+          - pattern-either:
+              - pattern-inside: $S.tool(..., async ({ ..., $ARG, ... }) => { ... })
+              - pattern-inside: $S.tool(..., ({ ..., $ARG, ... }) => { ... })
+              - pattern-inside: $S.registerTool(..., async ({ ..., $ARG, ... }) => { ... })
+          - pattern: $ARG
+    pattern-sanitizers:
+      - pattern: path.basename(...)
+      - pattern: parseInt(...)
+      - pattern: Number(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fs.$F($P, ...)
+              - pattern: fsp.$F($P, ...)
+              - pattern: fs.promises.$F($P, ...)
+              - pattern: readFile($P, ...)
+              - pattern: writeFile($P, ...)
+              - pattern: readFileSync($P, ...)
+              - pattern: writeFileSync($P, ...)
+              - pattern: $RES.sendFile($P, ...)
+              - pattern: $RES.download($P, ...)
+          - focus-metavariable: $P
+
+  - id: sift.cmd-exec.js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Input reaches a shell command
+    metadata: { class: cmd-exec }
+    mode: taint
+    pattern-sources: *js-sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: exec($CMD, ...)
+              - pattern: execSync($CMD, ...)
+              - pattern: $CP.exec($CMD, ...)
+              - pattern: $CP.execSync($CMD, ...)
+              - pattern: execAsync($CMD, ...)
+          - focus-metavariable: $CMD
+
+  - id: sift.sqli.js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Input is pasted into a SQL string
+    metadata: { class: sqli }
+    mode: taint
+    pattern-sources: *js-sources
+    pattern-sanitizers:
+      - pattern: parseInt(...)
+      - pattern: Number(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($Q, ...)
+              - pattern: $DB.all($Q, ...)
+              - pattern: $DB.get($Q, ...)
+              - pattern: $DB.run($Q, ...)
+              - pattern: $DB.exec($Q, ...)
+              - pattern: $DB.execute($Q, ...)
+              - pattern: $DB.raw($Q, ...)
+              - pattern: $DB.$queryRawUnsafe($Q, ...)
+          - focus-metavariable: $Q
+          - pattern-either:
+              - pattern: "`...`"
+              - pattern: $X + $Y
+              - pattern: $V
+
+  - id: sift.ssrf.js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Input decides the URL of an outbound request
+    metadata: { class: ssrf }
+    mode: taint
+    pattern-sources: *js-sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: fetch($U, ...)
+              - pattern: axios($U, ...)
+              - pattern: axios.$M($U, ...)
+              - pattern: got($U, ...)
+              - pattern: http.get($U, ...)
+              - pattern: https.get($U, ...)
+          - focus-metavariable: $U
+
+  - id: sift.code-eval.js
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: Input is evaluated as code
+    metadata: { class: code-eval }
+    mode: taint
+    pattern-sources: *js-sources
+    pattern-sinks:
+      - pattern: eval(...)
+      - pattern: new Function(...)
+      - pattern: vm.runInNewContext(...)
+      - pattern: vm.runInThisContext(...)

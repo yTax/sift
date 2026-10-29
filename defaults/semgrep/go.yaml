@@ -1,0 +1,89 @@
+# sift's Semgrep taint rules for Go (see python.yaml for how they're used).
+# Sources: inbound *http.Request data, framework contexts and MCP tool arguments.
+rules:
+  - id: sift.path-traversal.go
+    languages: [go]
+    severity: ERROR
+    message: Input reaches a filesystem path
+    metadata: { class: path-traversal }
+    mode: taint
+    pattern-sources: &go-sources
+      - pattern: $R.URL.Query().Get(...)
+      - pattern: $R.URL.Query()[...]
+      - pattern: $R.URL.Query()
+      - pattern: $R.FormValue(...)
+      - pattern: $R.PostFormValue(...)
+      - pattern: $R.PathValue(...)
+      - pattern: $R.URL.Path
+      - pattern: $R.Body
+      - pattern: ($C *gin.Context).Query(...)
+      - pattern: ($C *gin.Context).Param(...)
+      - pattern: ($C *gin.Context).PostForm(...)
+      - pattern: $REQ.RequireString(...)
+      - pattern: $REQ.GetString(...)
+      - pattern: $REQ.GetArguments()
+      - pattern: $REQ.Params.Arguments
+    pattern-sanitizers:
+      - pattern: filepath.Base(...)
+      - pattern: strconv.Atoi(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: os.Open($P)
+              - pattern: os.OpenFile($P, ...)
+              - pattern: os.ReadFile($P)
+              - pattern: os.WriteFile($P, ...)
+              - pattern: os.Create($P)
+              - pattern: os.Remove($P)
+              - pattern: os.RemoveAll($P)
+              - pattern: http.ServeFile($W, $R2, $P)
+          - focus-metavariable: $P
+
+  - id: sift.cmd-exec.go
+    languages: [go]
+    severity: ERROR
+    message: Input reaches a shell command
+    metadata: { class: cmd-exec }
+    mode: taint
+    pattern-sources: *go-sources
+    pattern-sinks:
+      - pattern: exec.Command("sh", "-c", ...)
+      - pattern: exec.Command("bash", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "sh", "-c", ...)
+      - pattern: exec.CommandContext($CTX, "bash", "-c", ...)
+
+  - id: sift.sqli.go
+    languages: [go]
+    severity: ERROR
+    message: Input is pasted into a SQL string
+    metadata: { class: sqli }
+    mode: taint
+    pattern-sources: *go-sources
+    pattern-sanitizers:
+      - pattern: strconv.Atoi(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.Query($Q, ...)
+              - pattern: $DB.QueryRow($Q, ...)
+              - pattern: $DB.Exec($Q, ...)
+              - pattern: $DB.QueryContext($CTX, $Q, ...)
+              - pattern: $DB.ExecContext($CTX, $Q, ...)
+              - pattern: $DB.Raw($Q, ...)
+          - focus-metavariable: $Q
+
+  - id: sift.ssrf.go
+    languages: [go]
+    severity: ERROR
+    message: Input decides the URL of an outbound request
+    metadata: { class: ssrf }
+    mode: taint
+    pattern-sources: *go-sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.Get($U)
+              - pattern: http.Post($U, ...)
+              - pattern: http.NewRequest($M, $U, ...)
+              - pattern: http.NewRequestWithContext($CTX, $M, $U, ...)
+          - focus-metavariable: $U

@@ -110,10 +110,12 @@ function filtered() {
   const all = document.getElementById("f-all").checked;
   const unscanned = document.getElementById("f-unscanned").checked;
   const high = document.getElementById("f-high").checked;
+  const confirmedOnly = document.getElementById("f-confirmed").checked;
   const out = state.repos.filter((r) => {
     if (!all && !r.filter.pass) return false;
     if (!unscanned && !r.scanned) return false;
     if (high && !r.high_findings) return false;
+    if (confirmedOnly && !r.confirmed) return false;
     if (scene && !(r.categories || []).includes(scene)) return false;
     if (status === "open" ? r.status === "skipped" : status && r.status !== status) return false;
     if (verdict === "none" ? r.verdict : verdict && r.verdict !== verdict) return false;
@@ -127,7 +129,7 @@ function filtered() {
   const key = {
     score: (r) => (r.score ? r.score.total : -1),
     paired: (r) => r.paired || 0,
-    findings: (r) => (r.high_findings || 0) * 1e6 + (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
+    findings: (r) => (r.confirmed || 0) * 1e9 + (r.high_findings || 0) * 1e6 + (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
     stars: (r) => r.popularity || 0,
     pushed: (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0),
   }[sort];
@@ -143,6 +145,7 @@ function rowEl(r) {
       r.description ? h("div", { class: "desc" }, r.description) : null),
     h("div", { class: "col-extra chips" },
       routeChip(r.cve_path),
+      r.confirmed ? h("span", { class: "chip good" }, r.confirmed + " confirmed") : null,
       r.high_findings ? h("span", { class: "chip bad" }, r.high_findings + " high") : null,
       r.findings ? h("span", { class: "chip warn" }, r.findings + " finding" + (r.findings > 1 ? "s" : "")) : null,
       r.paired ? h("span", { class: "chip" }, r.paired + " paired") : null,
@@ -214,12 +217,15 @@ function findingsCard(repo) {
   if (!list.length) return null;
   return h("section", { class: "card" },
     h("h2", null, "Checker findings (" + list.length + "): read these lines first"),
+    sc.semgrep ? h("p", { class: "muted" }, sc.semgrep.error ? "Semgrep: " + sc.semgrep.error
+      : "Semgrep checked " + sc.semgrep.files + " file(s) " + ago(sc.semgrep.at) + ": " + list.filter((f) => f.confirmed).length + " confirmed.") : null,
     h("p", { class: "muted" }, "Text-level checks, not proof. Each one says which input reached which call; confirm by reading the function."),
     h("ul", { class: "plain" }, list.map((f) => {
       const href = ghLink(repo, sc.ref, f.path, f.line);
       const loc = f.path + ":" + f.line;
       return h("li", null,
         h("div", null,
+          f.confirmed ? [h("span", { class: "chip good" }, "confirmed by Semgrep"), " "] : null,
           h("span", { class: "chip " + (f.confidence === "high" ? "bad" : "warn") }, f.confidence), " ",
           h("span", { class: "chip" }, f.class), " ",
           href ? ext(href, h("span", { class: "mono" }, loc)) : h("span", { class: "mono" }, loc),
@@ -452,7 +458,7 @@ function route() {
 }
 
 function init() {
-  for (const id of ["q", "f-scene", "f-status", "f-verdict", "f-sort", "f-high", "f-all", "f-unscanned"]) {
+  for (const id of ["q", "f-scene", "f-status", "f-verdict", "f-sort", "f-confirmed", "f-high", "f-all", "f-unscanned"]) {
     document.getElementById(id).addEventListener(id === "q" ? "input" : "change", () => {
       state.shown = PAGE;
       renderList();
@@ -465,7 +471,7 @@ function init() {
   });
   document.getElementById("runstart").addEventListener("click", async () => {
     const scene = document.getElementById("runscene").value;
-    const stages = ["search", "enrich", "scan"].filter((s) => document.getElementById("st-" + s).checked);
+    const stages = ["search", "enrich", "scan", "taint"].filter((s) => document.getElementById("st-" + s).checked);
     try {
       await api("/api/run", { stages, categories: scene ? [scene] : [], force: document.getElementById("st-force").checked });
     } catch (err) { alertLine(err.message); }

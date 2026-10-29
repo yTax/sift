@@ -1,0 +1,108 @@
+# sift's Semgrep taint rules for Python. Each rule's metadata.class matches a checker class, so a
+# Semgrep result on the same line as a checker finding confirms it. Sources: request data and the
+# parameters of functions registered as routes or MCP tools.
+rules:
+  - id: sift.path-traversal.python
+    languages: [python]
+    severity: ERROR
+    message: Input reaches a filesystem path
+    metadata: { class: path-traversal }
+    mode: taint
+    pattern-sources: &py-sources
+      - pattern: flask.request.$ANY
+      - pattern: request.$ATTR
+      - patterns:
+          - pattern-inside: |
+              @$APP.$ROUTE(...)
+              def $FUNC(..., $ARG, ...):
+                ...
+          - metavariable-regex:
+              metavariable: $ROUTE
+              regex: ^(tool|get|post|put|patch|delete|route|api_route|websocket|call_tool|resource)$
+          - pattern: $ARG
+    pattern-sanitizers: &py-path-sanitizers
+      - pattern: os.path.basename(...)
+      - pattern: secure_filename(...)
+      - pattern: int(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: open($P, ...)
+              - pattern: os.remove($P)
+              - pattern: os.unlink($P)
+              - pattern: os.rmdir($P)
+              - pattern: shutil.rmtree($P, ...)
+              - pattern: shutil.copy($P, ...)
+              - pattern: shutil.move($P, ...)
+              - pattern: send_file($P, ...)
+              - pattern: FileResponse($P, ...)
+              - pattern: Path($P)
+          - focus-metavariable: $P
+
+  - id: sift.cmd-exec.python
+    languages: [python]
+    severity: ERROR
+    message: Input reaches a shell command
+    metadata: { class: cmd-exec }
+    mode: taint
+    pattern-sources: *py-sources
+    pattern-sanitizers:
+      - pattern: shlex.quote(...)
+      - pattern: int(...)
+    pattern-sinks:
+      - pattern: os.system(...)
+      - pattern: os.popen(...)
+      - patterns:
+          - pattern: subprocess.$F($CMD, ..., shell=True, ...)
+          - focus-metavariable: $CMD
+      - pattern: asyncio.create_subprocess_shell(...)
+
+  - id: sift.sqli.python
+    languages: [python]
+    severity: ERROR
+    message: Input is pasted into a SQL string
+    metadata: { class: sqli }
+    mode: taint
+    pattern-sources: *py-sources
+    pattern-sanitizers:
+      - pattern: int(...)
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.execute($Q, ...)
+              - pattern: $C.executemany($Q, ...)
+              - pattern: $C.executescript($Q)
+              - pattern: text($Q)
+              - pattern: $M.objects.raw($Q, ...)
+          - focus-metavariable: $Q
+
+  - id: sift.ssrf.python
+    languages: [python]
+    severity: ERROR
+    message: Input decides the URL of an outbound request
+    metadata: { class: ssrf }
+    mode: taint
+    pattern-sources: *py-sources
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: requests.$M($U, ...)
+              - pattern: httpx.$M($U, ...)
+              - pattern: urllib.request.urlopen($U, ...)
+              - pattern: urlopen($U, ...)
+          - focus-metavariable: $U
+
+  - id: sift.code-eval.python
+    languages: [python]
+    severity: ERROR
+    message: Input is evaluated as code or unsafely deserialized
+    metadata: { class: code-eval }
+    mode: taint
+    pattern-sources: *py-sources
+    pattern-sinks:
+      - pattern: eval(...)
+      - pattern: exec(...)
+      - pattern: pickle.loads(...)
+      - pattern: yaml.load(...)
+      - pattern: yaml.unsafe_load(...)
+      - pattern: marshal.loads(...)

@@ -194,9 +194,7 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	if len(findings) > maxFindingsPerRepo {
 		findings = findings[:maxFindingsPerRepo]
 	}
-	for _, f := range findings {
-		res.FindingsWeight += f.Weight
-	}
+	res.FindingsWeight = findingsWeight(findings)
 	res.Findings = findings
 	sort.SliceStable(sinks, func(i, j int) bool { return sinks[i].Weight > sinks[j].Weight })
 	if len(sinks) > maxSinkHitsKept {

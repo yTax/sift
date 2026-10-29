@@ -244,7 +244,7 @@ type Pattern struct {
 	Class   string  `yaml:"class" json:"class"`
 	Weight  float64 `yaml:"weight" json:"weight"`
 	re      *regexp.Regexp
-	lits    []string       // every match contains one of these (lowercase); nil = no shortcut
+	lits    []string // every match contains one of these (lowercase); nil = no shortcut
 }
 
 type SinkProfile struct {

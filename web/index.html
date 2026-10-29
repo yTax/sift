@@ -24,6 +24,7 @@
     <label class="chk"><input type="checkbox" id="st-search" checked> search</label>
     <label class="chk"><input type="checkbox" id="st-enrich" checked> enrich</label>
     <label class="chk"><input type="checkbox" id="st-scan" checked> scan</label>
+    <label class="chk"><input type="checkbox" id="st-taint" checked> semgrep</label>
     <label class="chk"><input type="checkbox" id="st-force"> ignore caches</label>
     <button id="runstart" class="btn primary">Start</button>
     <button id="runcancel" class="btn">Cancel run</button>
@@ -57,6 +58,7 @@
       <option value="stars">Sort: popularity</option>
       <option value="pushed">Sort: last push</option>
     </select>
+    <label class="chk"><input type="checkbox" id="f-confirmed"> only Semgrep-confirmed</label>
     <label class="chk"><input type="checkbox" id="f-high"> only high-confidence findings</label>
     <label class="chk"><input type="checkbox" id="f-all"> include filtered out</label>
     <label class="chk"><input type="checkbox" id="f-unscanned"> include unscanned</label>

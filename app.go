@@ -148,7 +148,7 @@ func (a *App) Progress() Progress {
 }
 
 type RunOpts struct {
-	Stages     []string `json:"stages"`     // search, enrich, scan
+	Stages     []string `json:"stages"`     // search, enrich, scan, taint (Semgrep)
 	Categories []string `json:"categories"` // empty = every enabled category
 	Force      bool     `json:"force"`      // ignore caches and review status
 }
@@ -288,7 +288,10 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		catIDs = append(catIDs, c.ID)
 	}
 	var stageList []string
-	for _, st := range []string{"search", "enrich", "scan"} {
+	if stages["scan"] && s.SemgrepAuto {
+		stages["taint"] = true
+	}
+	for _, st := range []string{"search", "enrich", "scan", "taint"} {
 		if stages[st] {
 			stageList = append(stageList, st)
 		}
@@ -361,6 +364,13 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	a.Rescore()
 	if stages["scan"] {
 		rec.Scanned = a.stageScan(ctx, h, working, catMap, profiles, s, opts.Force)
+		if ctx.Err() != nil {
+			return
+		}
+		a.Rescore() // Semgrep picks the top N by score
+	}
+	if stages["taint"] {
+		a.stageTaint(ctx, h, working, s)
 	}
 }
 

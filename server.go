@@ -194,6 +194,7 @@ type repoSummary struct {
 	Paired       int            `json:"paired"`
 	Findings     int            `json:"findings"`
 	HighFindings int            `json:"high_findings"`
+	Confirmed    int            `json:"confirmed"`
 	Classes      map[string]int `json:"classes,omitempty"`
 	FirstSeen    time.Time      `json:"first_seen"`
 }
@@ -230,6 +231,9 @@ func summarize(r *Repo) repoSummary {
 		for _, f := range sc.Findings {
 			if f.Confidence == "high" {
 				s.HighFindings++
+			}
+			if f.Confirmed {
+				s.Confirmed++
 			}
 		}
 	}
@@ -274,7 +278,7 @@ func (a *App) hRepo(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Key    string  `json:"key"`
+		Key     string  `json:"key"`
 		Status  *string `json:"status"`
 		Notes   *string `json:"notes"`
 		Verdict *string `json:"verdict"`
