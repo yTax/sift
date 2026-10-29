@@ -53,3 +53,19 @@ GitHub code search needs auth and has its own rate limits (and only indexes defa
 ### Done when
 - Given a real fix commit, sift extracts the changed pattern, finds other repos containing the pre-fix shape, and drops them into the DB as scored candidates tagged with the source advisory.
 - Rate limits respected; dedupes against repos already present.
+
+## 4c. Automatic variant feed (after 4b works by hand)
+
+### Why
+4b starts from an advisory you pick. The feed picks them for you: every new advisory in the scenes sift watches becomes a variant search on its own, so sift turns up candidates while you're away.
+
+### How
+1. **Pull new advisories daily** from the global GitHub advisory database (`GET /advisories?ecosystem=npm|pip|go|maven&published=>{last}&type=reviewed`, plain REST with the existing token). Keep the ones whose package or repo falls in a watched scene (MCP/agent topics, WordPress, Jenkins) and whose CWE is one the checkers know (22, 78, 918, 502, 284/862).
+2. **Find the fix commit.** The advisory's `references` usually link it; otherwise skip the advisory. Don't guess.
+3. **Classify the fix by what it added**, not only what it removed: a `path.relative`/`Rel` containment check, a switch from `exec` to an argument array, a host allow-list, an auth middleware. Each added guard maps to a plan 12 checker. "Fix added a containment check" means "look for that same handler shape without one".
+4. **Search** in two places: the repos already in the DB (run the matching checker over their stored hits, or rescan the hot files), and GitHub code search for a distinctive identifier from the vulnerable code, limited to the scene's language. Same rate-limit and dedupe rules as 4b.
+5. **Emit** candidates tagged `variant-of:GHSA-…` so they enter the normal pipeline, and send a Discord alert (plan 6) when a candidate also has a checker finding.
+
+### Done when
+- A daily tick with one new path-traversal GHSA in an MCP package produces tagged candidates from both the DB and code search, without running anything from the advisory's repo.
+- Advisories without a resolvable fix commit are logged and skipped.

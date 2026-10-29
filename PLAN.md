@@ -19,26 +19,36 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 1 | [`01-storage.md`](docs/plans/01-storage.md) | Move state from one big JSON file to SQLite before it grows to tens of MB | — |
 | 2 | [`02-testing.md`](docs/plans/02-testing.md) | A mock GitHub so the whole pipeline is testable offline (+ base-URL setting, which also unlocks GitHub Enterprise) | — |
 | 3 | [`03-scoring.md`](docs/plans/03-scoring.md) | Same-file pairing, sink-density, and dependency impact — the cheapest wins in ranking quality | 1 |
-| 4 | [`04-known-bugs.md`](docs/plans/04-known-bugs.md) | Check OSV/GHSA and open issues so you don't hunt a bug someone already found; variant-hunt from fix commits | 1 |
+| 4 | [`04-known-bugs.md`](docs/plans/04-known-bugs.md) | Check OSV/GHSA and open issues so you don't hunt a bug someone already found; variant-hunt from fix commits, by hand (4b) and as a daily feed (4c) | 1 |
 | 5 | [`05-cli.md`](docs/plans/05-cli.md) | Headless `sift` commands so it runs from cron on the Oracle box | 1 |
 | 6 | [`06-notifications.md`](docs/plans/06-notifications.md) | Discord webhook + bot + watch mode (re-scan shortlisted repos when sink files change) | 1, 5 |
-| 7 | [`07-semgrep.md`](docs/plans/07-semgrep.md) | Optional taint pass on the top N — confirms input actually reaches a sink | 3 |
+| 7 | [`07-semgrep.md`](docs/plans/07-semgrep.md) | Optional taint pass on the top N — confirms input actually reaches a sink; CodeQL on the very top later (7b) | 3 |
 | 8 | [`08-web-dashboard.md`](docs/plans/08-web-dashboard.md) | The dashboard, and hosting it on Oracle behind auth | 1, 3, 4 |
 | 9 | [`09-release.md`](docs/plans/09-release.md) | goreleaser + GitHub Actions for Windows/Linux/ARM builds | — |
 | 10 | [`10-fresh-surface.md`](docs/plans/10-fresh-surface.md) | Make "a sink appeared recently" a sortable/filterable signal — fresh code has the least competition | 1, 6 |
 | 11 | [`11-bounty-scope.md`](docs/plans/11-bounty-scope.md) | Tag candidates that are likely in a paying program so you can pick "fast CVE" vs "paid" per session | 1 |
+| 12 | [`12-checkers.md`](docs/plans/12-checkers.md) | Bug checkers per bug class (prefix containment, tool path → fs, shell from input, SSRF, route without auth…) — sift points at lines, not just repos | 3a |
+| 13 | [`13-learned-ranking.md`](docs/plans/13-learned-ranking.md) | Suggest score weights from your real/dud marks (logistic regression in plain Go, suggest-then-apply) | 8a |
 
 ### Build order
 
-The numbers above are IDs, not the order to build in. Nothing reads the data yet (`web/index.html` is a placeholder) and the GitHub half of the pipeline has never seen real results, so get a usable loop first:
+The numbers above are IDs, not the order to build in. The goal is a tool that finds bugs with as little manual reading as possible, without paying for an LLM.
 
-1. **A real run** against GitHub with a token. Fix whatever breaks before building on top of it.
-2. **Plan 5 (CLI)** — `sift run` + `sift top` is the cheapest way to actually triage. Plan 1 can come right before or after; `top` works off the JSON store too.
-3. **Plan 3a (pairing)** and **4a (known bugs)** — biggest ranking/time-saving wins.
-4. **Plan 1 (SQLite)**, then **8 (dashboard + hosting)** so it's reachable from your phone, then **6** (Discord, watch).
-5. The rest (2, 3b/3c, 4b, 7, 9, 10, 11) as they become useful.
+Done so far:
+- **First real run** (MCP scene, 1,443 repos). It exposed slow enrich (fixed: batches run in parallel) and a ranking that pinned at 100 (fixed: wider caps, history curve).
+- **3a (pairing)**, scored as `pairing`; hot files show on the repo page.
+- **3d (`cve_path`)**.
+- **8a, basic UI**: ranked list, repo page, run panel, real/dud marks. The scenes/settings screen is still to do.
 
-Already done: the CVE-route score part (`cve_path`, see plan 3d).
+Next, in order:
+1. **4a (known bugs)**: stop flagging bugs that are already reported.
+2. **12 (checkers), layer 1**: sift points at lines. This is the core of finding bugs on its own; MCP bug classes first.
+3. **4b → 4c (variants)**: by hand first, then the daily advisory feed.
+4. **5 (CLI) → 1 (SQLite) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with findings, not just repos. Deployment details get settled with the real server config at that point.
+5. **7 + 12 layer 2 (Semgrep with sift's rules)**, then **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough marks.
+6. The rest as they become useful: 2, 3b/3c, 9, 10, 11, the settings screen.
+
+**Ruled out:** running a target app and firing payloads at it (dynamic exploit testing). sift never runs downloaded code. **Maybe later:** a free local LLM on the Oracle box for first-pass triage. No paid API.
 
 ## Conventions (read before building anything)
 

@@ -4,7 +4,10 @@ Three independent upgrades to `score.go` + `scan.go`. Each stands alone; do them
 
 ---
 
-## 3a. Same-file pairing (do this first)
+## 3a. Same-file pairing — done
+
+Built as described below: `ScanResult.PairedFiles/PairedWeight/HotFiles`, a `pairing` score part (default weight 3, capped at 150), and hot files on the repo page. Old scans get pairing rebuilt from their stored hits on rescore. Proximity uses the kept hits (up to 8 per pattern per file), which is enough in practice.
+
 
 ### What it means, plainly
 

@@ -46,3 +46,15 @@ Today's scanner never extracts anything (it reads zip entries in memory), so it 
 - With semgrep installed, `sift taint 10` attaches taint findings to the top 10 and nudges their order; findings show on the card and in alerts.
 - Without semgrep installed, it logs one line and does nothing else.
 - A per-repo timeout stops one pathological repo from hanging the pass.
+
+## 7b. CodeQL on the very top (later, on the Oracle box)
+
+Semgrep CE follows data inside one function. **CodeQL** follows it across files and functions, so it can show that a tool argument reaches `exec` three calls away. It's the strongest free analysis available, with two catches:
+
+- **License:** the CodeQL CLI may be used to analyse code released under an OSI-approved open-source license. sift already stores `Enrichment.License`; only run CodeQL when it's an OSI license, and skip (with a note on the card) otherwise. Re-read GitHub's CodeQL terms before building this, in case they've changed.
+- **Cost:** building a CodeQL database takes minutes and several GB of RAM per repo, which is too heavy for the desktop. Run it on the Oracle box, only for the top ~20 by score that already have plan 12 findings, one at a time, with a hard timeout.
+- **Platform:** confirm that the CodeQL CLI runs on Linux ARM64 (the Oracle Ampere box) before committing to it. If it doesn't, this step needs an x86 machine.
+
+How: `codeql database create --language=<lang> --source-root <extracted dir>` (buildless extraction for JS/TS/Python, and for Go where it works), then `codeql database analyze` with the standard `security-extended` suite and SARIF output. Parse the SARIF into the same `TaintFindings` shape as Semgrep, tagged `codeql`. The extraction rules above (zip-slip-safe, size caps, delete afterwards) apply unchanged.
+
+Done when: on the Oracle box, `sift codeql 5` analyses the top 5 OSI-licensed repos with findings, attaches results, skips non-OSI ones with a reason, and never exceeds the per-repo timeout.

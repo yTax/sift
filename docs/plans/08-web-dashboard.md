@@ -10,6 +10,9 @@ The JSON API in `server.go` already exists (`/api/state`, `/api/repos`, `/api/re
 
 ## 8a. The dashboard UI
 
+**Status:** a first version is built: plain JS (no framework), with the ranked list (cards on a phone), the repo page (hot files, how to report, score breakdown, facts, hits by file, status, notes, real/dud marks) and the run panel with the live log. Still to do: the scenes/settings screen, and the plan 4/12 cards once those exist.
+
+
 ### Recommendation
 Keep the existing JSON API and build a small single-page app embedded via `go:embed` (as `web/` is today). Keep the JS footprint light — this is a dense data tool, not a marketing site. Good fits, any of:
 - **Vanilla + a tiny reactive lib** (Alpine.js) — least build tooling, drops in over the current `web/index.html`.
