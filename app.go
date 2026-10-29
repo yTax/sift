@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -658,13 +659,17 @@ func (a *App) fetchBatch(ctx context.Context, h *HTTP, chunk []enrichTarget, sin
 func (a *App) storeEnrichment(ctx context.Context, h *HTTP, s Settings, key string, f repoFlags, g *gqlRepo) {
 	var pvr *bool
 	adv := -1
+	var known []KnownAdvisory
 	if s.CheckPVR {
 		pvr = h.PVR(ctx, g.NameWithOwner)
 	}
 	if s.CheckAdvisories {
-		adv = h.PublishedAdvisories(ctx, g.NameWithOwner)
+		if list, ok := h.PublishedAdvisories(ctx, g.NameWithOwner); ok {
+			adv, known = len(list), list[:min(len(list), maxKnownAdvisories)]
+		}
 	}
 	e := buildEnrichment(g, pvr, adv)
+	e.KnownAdvisories = known
 	var contacts []Contact
 	if f.discover {
 		contacts = contactsFromGitHub(g, pvr)
@@ -696,6 +701,19 @@ func (a *App) storeEnrichment(ctx context.Context, h *HTTP, s Settings, key stri
 	})
 }
 
+const maxKnownAdvisories = 20
+
+var (
+	securityTitleRe = regexp.MustCompile(`(?i)\b(security|vulnerab\w*|cve-\d{4}|xss|rce|ssrf|csrf|sqli|sql injection|command injection|code injection|path traversal|directory traversal|arbitrary (file|code|command)|auth(entication|orization)? bypass|privilege escalation|exploit\w*|unauthori[sz]ed access)\b`)
+	// bot noise that mentions "security" without being a report
+	securityNoiseRe = regexp.MustCompile(`(?i)^(bump |chore\(deps\)|build\(deps\)|\[snyk\]|\[security\] bump|update dependency )`)
+)
+
+// looksLikeSecurityReport flags open issue titles that read like an unfixed vulnerability report.
+func looksLikeSecurityReport(title string) bool {
+	return securityTitleRe.MatchString(title) && !securityNoiseRe.MatchString(title)
+}
+
 func buildEnrichment(g *gqlRepo, pvr *bool, adv int) *Enrichment {
 	e := &Enrichment{
 		At:                time.Now(),
@@ -712,6 +730,11 @@ func buildEnrichment(g *gqlRepo, pvr *bool, adv int) *Enrichment {
 	}
 	if g.PushedAt != nil {
 		e.PushedAt = *g.PushedAt
+	}
+	for _, n := range g.OpenIssues.Nodes {
+		if looksLikeSecurityReport(n.Title) {
+			e.SecurityIssues = append(e.SecurityIssues, IssueRef{Title: n.Title, URL: n.URL, CreatedAt: n.CreatedAt})
+		}
 	}
 	if adv > 0 {
 		e.Advisories = adv

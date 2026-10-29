@@ -140,7 +140,8 @@ function rowEl(r) {
     h("div", { class: "col-extra chips" },
       routeChip(r.cve_path),
       r.paired ? h("span", { class: "chip" }, r.paired + " paired") : null,
-      r.advisories > 0 ? h("span", { class: "chip" }, r.advisories + " GHSA") : null),
+      r.advisories > 0 ? h("span", { class: "chip" }, r.advisories + " GHSA") : null,
+      r.sec_issues > 0 ? h("span", { class: "chip warn" }, r.sec_issues + " open security issue" + (r.sec_issues > 1 ? "s" : "")) : null),
     h("div", { class: "col-extra meta" },
       [r.language, r.popularity ? "★" + short(r.popularity) : ""].filter(Boolean).join(" · ")),
     h("div", { class: "col-extra meta" },
@@ -247,6 +248,27 @@ function hitsCard(repo) {
     files.length > 60 ? h("p", { class: "muted" }, (files.length - 60) + " more files not shown") : null);
 }
 
+function knownCard(repo) {
+  const e = repo.enriched || {};
+  const adv = e.known_advisories || [];
+  const issues = e.security_issues || [];
+  if (!adv.length && !issues.length) return null;
+  return h("section", { class: "card" },
+    h("h2", null, "Already found"),
+    issues.length ? [
+      h("p", { class: "muted" }, "Open issues that read like security reports. Someone may already be on it:"),
+      h("ul", { class: "plain" }, issues.map((i) =>
+        h("li", null, safeURL(i.url) ? ext(i.url, i.title) : i.title, h("span", { class: "muted" }, " · " + ago(i.created_at)))))] : null,
+    adv.length ? [
+      h("p", { class: "muted" }, (e.advisories || adv.length) + " published advisories. Similar bugs often sit next to old ones:"),
+      h("ul", { class: "plain" }, adv.map((a) =>
+        h("li", null,
+          safeURL(a.url) ? ext(a.url, a.cve || a.id) : (a.cve || a.id), " ",
+          a.severity ? h("span", { class: "chip" + (a.severity === "critical" || a.severity === "high" ? " bad" : "") }, a.severity) : null, " ",
+          (a.cwes || []).map((c) => h("span", { class: "chip" }, c)), " ",
+          a.summary, h("span", { class: "muted" }, a.published ? " · " + ago(a.published) : ""))))] : null);
+}
+
 function factsCard(repo) {
   const e = repo.enriched || {};
   const rows = [
@@ -321,6 +343,7 @@ async function openDetail(key, keepScroll) {
         repo.description ? h("div", { class: "muted" }, repo.description) : null)),
     triageCard(repo),
     hotCard(repo),
+    knownCard(repo),
     reportCard(repo),
     partsCard(repo),
     factsCard(repo),

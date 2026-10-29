@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -322,7 +323,7 @@ fragment R on Repository {
   isSecurityPolicyEnabled securityPolicyUrl
   releases { totalCount }
   tags: refs(refPrefix: "refs/tags/", first: 1) { totalCount }
-  openIssues: issues(states: OPEN) { totalCount }
+  openIssues: issues(states: OPEN, first: 40, orderBy: {field: CREATED_AT, direction: DESC}) { totalCount nodes { title url createdAt } }
   defaultBranchRef { name target { ... on Commit { oid history(since: "%s") { totalCount } } } }
   recentIssues: issues(first: 12, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { authorAssociation comments(last: 6) { nodes { authorAssociation createdAt } } } }
   recentPRs: pullRequests(first: 8, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { comments(last: 6) { nodes { authorAssociation createdAt } } } }
@@ -383,6 +384,11 @@ type gqlRepo struct {
 	} `json:"tags"`
 	OpenIssues struct {
 		TotalCount int `json:"totalCount"`
+		Nodes      []struct {
+			Title     string    `json:"title"`
+			URL       string    `json:"url"`
+			CreatedAt time.Time `json:"createdAt"`
+		} `json:"nodes"`
 	} `json:"openIssues"`
 	DefaultBranchRef *struct {
 		Name   string `json:"name"`
@@ -564,16 +570,41 @@ func (h *HTTP) PVR(ctx context.Context, fullName string) *bool {
 	return &out.Enabled
 }
 
-// PublishedAdvisories counts published repository security advisories (GHSAs). -1 = unknown.
-func (h *HTTP) PublishedAdvisories(ctx context.Context, fullName string) int {
-	var out []struct {
-		GhsaID string `json:"ghsa_id"`
-	}
-	code, err := h.GetJSON(ctx, "https://api.github.com/repos/"+fullName+"/security-advisories?state=published&per_page=100", &out)
+// ghAdvisory is the part of a repository security advisory sift keeps.
+type ghAdvisory struct {
+	GhsaID      string     `json:"ghsa_id"`
+	CveID       *string    `json:"cve_id"`
+	Summary     string     `json:"summary"`
+	Severity    string     `json:"severity"`
+	CweIDs      []string   `json:"cwe_ids"`
+	HTMLURL     string     `json:"html_url"`
+	PublishedAt *time.Time `json:"published_at"`
+}
+
+// PublishedAdvisories lists the repo's published security advisories (GHSAs), newest first.
+// ok is false when GitHub wouldn't say.
+func (h *HTTP) PublishedAdvisories(ctx context.Context, fullName string) (list []KnownAdvisory, ok bool) {
+	var out []ghAdvisory
+	code, err := h.GetJSON(ctx, "https://api.github.com/repos/"+fullName+"/security-advisories?state=published&per_page=100&sort=published&direction=desc", &out)
 	if err != nil || code != 200 {
-		return -1
+		return nil, false
 	}
-	return len(out)
+	return toKnownAdvisories(out), true
+}
+
+func toKnownAdvisories(in []ghAdvisory) []KnownAdvisory {
+	out := make([]KnownAdvisory, 0, len(in))
+	for _, a := range in {
+		out = append(out, KnownAdvisory{
+			ID: a.GhsaID, CVE: str(a.CveID), Summary: a.Summary, Severity: a.Severity,
+			CWEs: a.CweIDs, URL: a.HTMLURL, Published: a.PublishedAt,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		pi, pj := out[i].Published, out[j].Published
+		return pi != nil && (pj == nil || pi.After(*pj))
+	})
+	return out
 }
 
 // DownloadToTemp streams url into a temp file, aborting past maxBytes.

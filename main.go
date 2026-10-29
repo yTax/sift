@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
+	"time"
 )
 
 //go:embed web
@@ -25,6 +27,7 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address (keep it on localhost)")
 	dir := flag.String("dir", "", "base folder holding dorks/, sinks/ and data/ (default: current folder if it has dorks/, else the executable's folder)")
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
+	allowHost := flag.String("allow-host", "", "extra host names/IPs the UI may be reached on, comma-separated (e.g. your Tailscale IP); sift has no login, so only use addresses on a private network")
 	flag.Parse()
 
 	base := resolveBase(*dir)
@@ -52,7 +55,17 @@ func main() {
 	if !*noBrowser {
 		openBrowser(url)
 	}
-	if err := http.Serve(ln, app.Routes(sub)); err != nil {
+	var extra []string
+	if *allowHost != "" {
+		extra = strings.Split(*allowHost, ",")
+		log.Printf("also answering as: %s", *allowHost)
+	}
+	srv := &http.Server{
+		Handler:           app.Routes(sub, extra...),
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+	if err := srv.Serve(ln); err != nil {
 		log.Fatal(err)
 	}
 }

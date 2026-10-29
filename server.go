@@ -14,7 +14,9 @@ import (
 	"time"
 )
 
-func (a *App) Routes(static fs.FS) http.Handler {
+// Routes builds the HTTP handler. extraHosts are Host names allowed besides localhost
+// (e.g. a Tailscale IP); everything else is refused.
+func (a *App) Routes(static fs.FS, extraHosts ...string) http.Handler {
 	mux := http.NewServeMux()
 	files := http.FileServer(http.FS(static))
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
@@ -37,19 +39,26 @@ func (a *App) Routes(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/defaults", a.hDefaults)
 	mux.HandleFunc("GET /api/events", a.hEvents)
 	mux.HandleFunc("GET /api/export", a.hExport)
-	return guard(mux)
+	return guard(mux, extraHosts)
 }
 
-// guard blocks DNS rebinding (Host must be local) and cross-site POSTs (custom header required).
-func guard(next http.Handler) http.Handler {
+// guard blocks DNS rebinding (Host must be local or explicitly allowed) and cross-site POSTs
+// (custom header required).
+func guard(next http.Handler, extraHosts []string) http.Handler {
+	allowed := map[string]bool{"localhost": true, "127.0.0.1": true, "::1": true}
+	for _, h := range extraHosts {
+		if h = strings.ToLower(strings.Trim(strings.TrimSpace(h), "[]")); h != "" {
+			allowed[h] = true
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if h, _, err := net.SplitHostPort(host); err == nil {
 			host = h
 		}
 		host = strings.Trim(host, "[]")
-		if host != "localhost" && host != "127.0.0.1" && host != "::1" {
-			http.Error(w, "sift only answers on localhost", http.StatusForbidden)
+		if !allowed[strings.ToLower(host)] {
+			http.Error(w, "sift doesn't answer on this host name", http.StatusForbidden)
 			return
 		}
 		if r.Method != http.MethodGet && r.Header.Get("X-Sift") != "1" {
@@ -173,6 +182,7 @@ type repoSummary struct {
 	PushedAt     *time.Time     `json:"pushed_at,omitempty"`
 	LastReply    *time.Time     `json:"last_reply,omitempty"`
 	Advisories   int            `json:"advisories"`
+	SecIssues    int            `json:"sec_issues"`
 	ContactKinds []string       `json:"contact_kinds"`
 	CVEPath      string         `json:"cve_path,omitempty"`
 	Verdict      string         `json:"verdict,omitempty"`
@@ -200,6 +210,7 @@ func summarize(r *Repo) repoSummary {
 		}
 		s.LastReply = e.MaintainerLastReply
 		s.Advisories = e.Advisories
+		s.SecIssues = len(e.SecurityIssues)
 	}
 	seen := map[string]bool{}
 	for _, c := range r.Contacts {

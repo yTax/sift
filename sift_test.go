@@ -2,6 +2,8 @@ package main
 
 import (
 	"archive/zip"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -503,5 +505,77 @@ func TestVerdictKeepsScoreSnapshot(t *testing.T) {
 	}
 	if validVerdict["maybe"] {
 		t.Error("unknown verdicts must be rejected")
+	}
+}
+
+func TestLooksLikeSecurityReport(t *testing.T) {
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"Path traversal in read_file tool", true},
+		{"Security: API key logged in plaintext", true},
+		{"RCE via crafted workflow YAML", true},
+		{"Possible SSRF in fetch_url", true},
+		{"CVE-2026-12345 affects 1.4", true},
+		{"Authentication bypass when header is empty", true},
+		{"Bump axios from 1.6.0 to 1.7.4 (security)", false},
+		{"chore(deps): update security patches", false},
+		{"Force refresh doesn't reload sources", false}, // "rce" inside a word
+		{"Add dark mode", false},
+	}
+	for _, c := range cases {
+		if got := looksLikeSecurityReport(c.title); got != c.want {
+			t.Errorf("%q: got %v, want %v", c.title, got, c.want)
+		}
+	}
+}
+
+func TestKnownAdvisoriesNewestFirst(t *testing.T) {
+	old := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := old.AddDate(1, 0, 0)
+	cve := "CVE-2026-1"
+	got := toKnownAdvisories([]ghAdvisory{
+		{GhsaID: "GHSA-old", PublishedAt: &old},
+		{GhsaID: "GHSA-undated"},
+		{GhsaID: "GHSA-new", CveID: &cve, CweIDs: []string{"CWE-22"}, PublishedAt: &newer},
+	})
+	if len(got) != 3 || got[0].ID != "GHSA-new" || got[1].ID != "GHSA-old" || got[2].ID != "GHSA-undated" {
+		t.Fatalf("order: %+v", got)
+	}
+	if got[0].CVE != "CVE-2026-1" || got[0].CWEs[0] != "CWE-22" || got[1].CVE != "" {
+		t.Errorf("fields: %+v", got[:2])
+	}
+}
+
+func TestGuardHosts(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	h := guard(ok, []string{" 100.69.50.117 ", "Box.tail.ts.net"})
+	cases := []struct {
+		host string
+		want int
+	}{
+		{"127.0.0.1:7777", 200},
+		{"localhost", 200},
+		{"100.69.50.117:8077", 200},
+		{"box.tail.ts.net", 200},
+		{"evil.example", 403},
+		{"100.69.50.118", 403},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest("GET", "/api/state", nil)
+		req.Host = c.host
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != c.want {
+			t.Errorf("%s: got %d, want %d", c.host, rec.Code, c.want)
+		}
+	}
+	req := httptest.NewRequest("POST", "/api/run", nil)
+	req.Host = "100.69.50.117"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != 403 {
+		t.Errorf("POST without X-Sift from an allowed host: got %d", rec.Code)
 	}
 }

@@ -34,11 +34,31 @@ type Enrichment struct {
 	IssuesSeen          int        `json:"issues_seen"` // issues+PRs inspected for maintainer replies
 	MaintainerLastReply *time.Time `json:"maintainer_last_reply,omitempty"`
 	OpenIssues          int        `json:"open_issues"`
+	// Already found: the repo's published advisories, and open issues that read like security
+	// reports nobody has fixed yet. Information for you, not a filter.
+	KnownAdvisories []KnownAdvisory `json:"known_advisories,omitempty"`
+	SecurityIssues  []IssueRef      `json:"security_issues,omitempty"`
 	RecentCommits       int        `json:"recent_commits"`
 	Topics              []string   `json:"topics,omitempty"`
 	Homepage            string     `json:"homepage,omitempty"`
 	License             string     `json:"license,omitempty"`
 	Error               string     `json:"error,omitempty"`
+}
+
+type KnownAdvisory struct {
+	ID        string     `json:"id"` // GHSA id
+	CVE       string     `json:"cve,omitempty"`
+	Summary   string     `json:"summary"`
+	Severity  string     `json:"severity,omitempty"`
+	CWEs      []string   `json:"cwes,omitempty"`
+	URL       string     `json:"url,omitempty"`
+	Published *time.Time `json:"published,omitempty"`
+}
+
+type IssueRef struct {
+	Title     string    `json:"title"`
+	URL       string    `json:"url"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Hit struct {
