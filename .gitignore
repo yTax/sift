@@ -1,5 +1,6 @@
-# runtime data (token lives in data/settings.json)
+# runtime data (token lives in .env or data/settings.json)
 /data/
+.env
 /dorks/
 /sinks/
 # build output

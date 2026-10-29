@@ -378,3 +378,31 @@ func TestRunIDsStayUniquePastCap(t *testing.T) {
 		t.Errorf("FinishRun touched %d runs, want 1", n)
 	}
 }
+
+func TestLoadDotEnv(t *testing.T) {
+	p := filepath.Join(t.TempDir(), ".env")
+	body := "# comment\nSIFT_T_A=plain\nexport SIFT_T_B=\"quoted\"\nSIFT_T_EMPTY=\nSIFT_T_KEEP=fromfile\nnot a pair\n"
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SIFT_T_KEEP", "fromenv")
+	for _, k := range []string{"SIFT_T_A", "SIFT_T_B", "SIFT_T_EMPTY"} {
+		t.Setenv(k, "")
+		os.Unsetenv(k)
+	}
+	if err := loadDotEnv(p); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"SIFT_T_A": "plain", "SIFT_T_B": "quoted", "SIFT_T_KEEP": "fromenv"}
+	for k, v := range want {
+		if got := os.Getenv(k); got != v {
+			t.Errorf("%s = %q, want %q", k, got, v)
+		}
+	}
+	if _, set := os.LookupEnv("SIFT_T_EMPTY"); set {
+		t.Error("empty value should not be set")
+	}
+	if err := loadDotEnv(filepath.Join(t.TempDir(), "missing")); err != nil {
+		t.Errorf("missing file: %v", err)
+	}
+}

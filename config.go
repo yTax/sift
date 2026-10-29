@@ -165,6 +165,39 @@ func (s Settings) TokenAndSource() (string, string) {
 	return "", ""
 }
 
+// loadDotEnv reads KEY=VALUE lines from path into the environment. Variables that are
+// already set win, so a real env var always overrides the file. A missing file is fine.
+func loadDotEnv(path string) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
+		if !ok {
+			continue
+		}
+		k, v = strings.TrimSpace(k), strings.TrimSpace(v)
+		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
+			v = v[1 : len(v)-1]
+		}
+		if k == "" || v == "" {
+			continue
+		}
+		if _, set := os.LookupEnv(k); !set {
+			os.Setenv(k, v)
+		}
+	}
+	return nil
+}
+
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err

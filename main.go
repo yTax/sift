@@ -28,6 +28,9 @@ func main() {
 	flag.Parse()
 
 	base := resolveBase(*dir)
+	if err := loadDotEnv(filepath.Join(base, ".env")); err != nil {
+		log.Printf("can't read .env: %v", err)
+	}
 	app, err := NewApp(base)
 	if err != nil {
 		log.Fatalf("startup failed: %v", err)
