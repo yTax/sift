@@ -64,6 +64,17 @@ type ScanResult struct {
 	Hits          []Hit          `json:"hits,omitempty"`
 	Truncated     bool           `json:"truncated"`
 	Error         string         `json:"error,omitempty"`
+	// Pairing: files where input enters (surface) and a sink sits in the same file.
+	PairedFiles  int       `json:"paired_files"`
+	PairedWeight float64   `json:"paired_weight"`
+	HotFiles     []HotFile `json:"hot_files,omitempty"` // best first: where to start reading
+}
+
+type HotFile struct {
+	Path    string   `json:"path"`
+	Weight  float64  `json:"weight"` // sink weight in the file, x1.5 for sinks near a surface
+	Near    bool     `json:"near"`   // a sink within nearLines of a surface
+	Classes []string `json:"classes,omitempty"`
 }
 
 type Score struct {

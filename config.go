@@ -18,6 +18,7 @@ type Weights struct {
 	Freshness      float64 `json:"freshness"`
 	Contact        float64 `json:"contact"`
 	CVEPath        float64 `json:"cve_path"`
+	Pairing        float64 `json:"pairing"`
 }
 
 // CategoryOverride holds UI toggles that override what the dork file says.
@@ -88,7 +89,7 @@ func defaultSettings() Settings {
 		SkipTests:                 true,
 		Concurrency:               4,
 		Weights: Weights{
-			Sinks: 3, Surface: 2, Auth: 2, History: 1.5, Responsiveness: 1.5, Freshness: 1, Contact: 1, CVEPath: 2,
+			Sinks: 3, Surface: 2, Auth: 2, History: 1.5, Responsiveness: 1.5, Freshness: 1, Contact: 1, CVEPath: 2, Pairing: 3,
 		},
 		ScoreCVEPath:    true,
 		Overrides:       map[string]CategoryOverride{},

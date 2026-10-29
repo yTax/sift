@@ -117,6 +117,7 @@ func NewApp(base string) (*App, error) {
 	if a.store, err = openStore(filepath.Join(a.dataDir, "state.json")); err != nil {
 		return nil, fmt.Errorf("state.json: %w", err)
 	}
+	a.Rescore() // a run that was killed never reached its final rescore
 	return a, nil
 }
 
@@ -231,6 +232,10 @@ func (a *App) Rescore() {
 	catMap, _, profiles := a.loadAll()
 	a.store.With(func(repos map[string]*Repo) {
 		for _, r := range repos {
+			if r.Scan != nil && r.Scan.HotFiles == nil && len(r.Scan.Hits) > 0 {
+				// scanned before pairing existed: rebuild it from the hits we kept
+				r.Scan.PairedFiles, r.Scan.PairedWeight, r.Scan.HotFiles = pairHits(r.Scan.Hits)
+			}
 			f := flagsForRepo(r, catMap, s, profiles)
 			r.Filter = applyFilters(r, s, f.require)
 			r.Score = computeScore(r, s, f.handledByProgram)
@@ -520,12 +525,13 @@ func (a *App) stageSearch(ctx context.Context, h *HTTP, cats []*Category, s Sett
 
 // ---------- stage 2: enrich ----------
 
+type enrichTarget struct {
+	key, gh string
+	f       repoFlags
+}
+
 func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap map[string]*Category, profiles []*SinkProfile, s Settings, force bool) {
-	type target struct {
-		key, gh string
-		f       repoFlags
-	}
-	var targets []target
+	var targets []enrichTarget
 	refresh := time.Duration(s.RefreshAfterDays) * 24 * time.Hour
 	a.store.Read(func(repos map[string]*Repo) {
 		for _, k := range working {
@@ -539,7 +545,7 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 			if !force && r.Enriched != nil && r.Enriched.HeadSHA != "" && r.Enriched.Error == "" && time.Since(r.Enriched.At) < refresh {
 				continue
 			}
-			targets = append(targets, target{k, r.GitHubRepo, flagsForRepo(r, catMap, s, profiles)})
+			targets = append(targets, enrichTarget{k, r.GitHubRepo, flagsForRepo(r, catMap, s, profiles)})
 		}
 	})
 	if len(targets) == 0 {
@@ -567,7 +573,11 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 	}
 	a.setProgress("enrich", 0, len(targets))
 
-	sem := make(chan struct{}, max(1, s.Concurrency))
+	// GitHub spends about a second per repo answering the GraphQL query no matter how it's
+	// batched, so batches run side by side. The per-repo REST checks get their own pool so a
+	// slow one never holds up the next batch.
+	gqlSem := make(chan struct{}, max(1, s.Concurrency))
+	restSem := make(chan struct{}, max(1, 2*s.Concurrency))
 	var wg sync.WaitGroup
 
 	for i := 0; i < len(targets); i += batch {
@@ -575,96 +585,115 @@ func (a *App) stageEnrich(ctx context.Context, h *HTTP, working []string, catMap
 			break
 		}
 		chunk := targets[i:min(i+batch, len(targets))]
-		names := make([]string, len(chunk))
-		for j, t := range chunk {
-			names[j] = t.gh
-		}
-		res, errs, err := h.EnrichBatch(ctx, names, since)
-		if err != nil && len(names) > 1 && ctx.Err() == nil {
-			a.warnf("enrich: batch failed (%v), retrying one by one", err)
-			res, errs = map[string]*gqlRepo{}, map[string]string{}
-			for _, n := range names {
-				r1, e1, err1 := h.EnrichBatch(ctx, []string{n}, since)
-				if err1 != nil {
-					errs[n] = err1.Error()
+		gqlSem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, errs := a.fetchBatch(ctx, h, chunk, since)
+			<-gqlSem
+			if ctx.Err() != nil {
+				return // canceled: leave these repos as they were
+			}
+			for _, t := range chunk {
+				g := res[t.gh]
+				if g == nil {
+					msg := errs[t.gh]
+					a.store.With(func(repos map[string]*Repo) {
+						r := repos[t.key]
+						if r.Enriched == nil {
+							r.Enriched = &Enrichment{}
+						}
+						r.Enriched.At, r.Enriched.Error = time.Now(), msg
+					})
+					tick()
 					continue
 				}
-				res[n] = r1[n]
-				if e1[n] != "" {
-					errs[n] = e1[n]
-				}
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					restSem <- struct{}{}
+					defer func() { <-restSem }()
+					a.storeEnrichment(ctx, h, s, t.key, t.f, g)
+					tick()
+				}()
 			}
-		} else if err != nil {
-			errs = map[string]string{}
-			for _, n := range names {
-				errs[n] = err.Error()
-			}
-		}
-		for _, t := range chunk {
-			t := t
-			g := res[t.gh]
-			if g == nil {
-				msg := errs[t.gh]
-				a.store.With(func(repos map[string]*Repo) {
-					r := repos[t.key]
-					if r.Enriched == nil {
-						r.Enriched = &Enrichment{}
-					}
-					r.Enriched.At, r.Enriched.Error = time.Now(), msg
-				})
-				tick()
-				continue
-			}
-			wg.Add(1)
-			sem <- struct{}{}
-			go func() {
-				defer wg.Done()
-				defer func() { <-sem }()
-				var pvr *bool
-				adv := -1
-				if s.CheckPVR {
-					pvr = h.PVR(ctx, g.NameWithOwner)
-				}
-				if s.CheckAdvisories {
-					adv = h.PublishedAdvisories(ctx, g.NameWithOwner)
-				}
-				e := buildEnrichment(g, pvr, adv)
-				var contacts []Contact
-				if t.f.discover {
-					contacts = contactsFromGitHub(g, pvr)
-				}
-				a.store.With(func(repos map[string]*Repo) {
-					r := repos[t.key]
-					prev := r.Enriched
-					if r.Source == "jenkins" && prev != nil {
-						// keep Jenkins-side facts
-						if prev.Advisories > e.Advisories {
-							e.Advisories = prev.Advisories
-						}
-						e.AdvisoryNote = prev.AdvisoryNote
-						e.Version = prev.Version
-					}
-					r.Enriched = e
-					if r.Source == "github" {
-						r.Description = str(g.Description)
-						r.Popularity = g.StargazerCount
-						if g.PrimaryLanguage != nil {
-							r.Language = g.PrimaryLanguage.Name
-						}
-					}
-					if t.f.discover {
-						r.Contacts = contacts
-					} else if r.Source != "wordpress" {
-						r.Contacts = nil
-					}
-				})
-				tick()
-			}()
-		}
+		}()
 	}
 	wg.Wait()
 	a.setProgress("enrich", len(targets), len(targets))
 	a.logf("enrich: done")
+}
+
+// fetchBatch runs one GraphQL batch, falling back to one repo at a time if the batch as a whole fails.
+func (a *App) fetchBatch(ctx context.Context, h *HTTP, chunk []enrichTarget, since time.Time) (map[string]*gqlRepo, map[string]string) {
+	names := make([]string, len(chunk))
+	for j, t := range chunk {
+		names[j] = t.gh
+	}
+	res, errs, err := h.EnrichBatch(ctx, names, since)
+	if err != nil && len(names) > 1 && ctx.Err() == nil {
+		a.warnf("enrich: batch failed (%v), retrying one by one", err)
+		res, errs = map[string]*gqlRepo{}, map[string]string{}
+		for _, n := range names {
+			r1, e1, err1 := h.EnrichBatch(ctx, []string{n}, since)
+			if err1 != nil {
+				errs[n] = err1.Error()
+				continue
+			}
+			res[n] = r1[n]
+			if e1[n] != "" {
+				errs[n] = e1[n]
+			}
+		}
+	} else if err != nil {
+		errs = map[string]string{}
+		for _, n := range names {
+			errs[n] = err.Error()
+		}
+	}
+	return res, errs
+}
+
+// storeEnrichment adds the REST-only facts (PVR, advisories) to a GraphQL result and saves it.
+func (a *App) storeEnrichment(ctx context.Context, h *HTTP, s Settings, key string, f repoFlags, g *gqlRepo) {
+	var pvr *bool
+	adv := -1
+	if s.CheckPVR {
+		pvr = h.PVR(ctx, g.NameWithOwner)
+	}
+	if s.CheckAdvisories {
+		adv = h.PublishedAdvisories(ctx, g.NameWithOwner)
+	}
+	e := buildEnrichment(g, pvr, adv)
+	var contacts []Contact
+	if f.discover {
+		contacts = contactsFromGitHub(g, pvr)
+	}
+	a.store.With(func(repos map[string]*Repo) {
+		r := repos[key]
+		prev := r.Enriched
+		if r.Source == "jenkins" && prev != nil {
+			// keep Jenkins-side facts
+			if prev.Advisories > e.Advisories {
+				e.Advisories = prev.Advisories
+			}
+			e.AdvisoryNote = prev.AdvisoryNote
+			e.Version = prev.Version
+		}
+		r.Enriched = e
+		if r.Source == "github" {
+			r.Description = str(g.Description)
+			r.Popularity = g.StargazerCount
+			if g.PrimaryLanguage != nil {
+				r.Language = g.PrimaryLanguage.Name
+			}
+		}
+		if f.discover {
+			r.Contacts = contacts
+		} else if r.Source != "wordpress" {
+			r.Contacts = nil
+		}
+	})
 }
 
 func buildEnrichment(g *gqlRepo, pvr *bool, adv int) *Enrichment {
@@ -829,6 +858,9 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 			}
 			d := done
 			mu.Unlock()
+			if d%25 == 0 {
+				a.Rescore() // keep the ranking live during long scans
+			}
 			if res.Error != "" {
 				a.warnf("scan %s: %s", strings.TrimPrefix(strings.TrimPrefix(t.key, "gh:"), "wp:"), res.Error)
 			}

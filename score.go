@@ -30,22 +30,31 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 	parts := map[string]float64{}
 	w := s.Weights
 
+	// Caps sit near the top few percent of a real MCP run (~500 repos), so the top end still
+	// spreads out instead of everything big pinning at 10.
 	if r.Scan != nil && r.Scan.Error == "" {
-		parts["sinks"] = logScale(r.Scan.WeightedSinks, 40)
-		parts["surface"] = logScale(float64(r.Scan.SurfaceHits), 40)
-		parts["auth"] = logScale(float64(r.Scan.AuthHits), 30)
+		parts["sinks"] = logScale(r.Scan.WeightedSinks, 1200)
+		parts["surface"] = logScale(float64(r.Scan.SurfaceHits), 450)
+		parts["auth"] = logScale(float64(r.Scan.AuthHits), 450)
+		parts["pairing"] = logScale(r.Scan.PairedWeight, 150)
 	}
 	e := r.Enriched
 	if e != nil {
+		// A past advisory or two means the code has had real bugs and the maintainer handled a
+		// report. Many means other people are already combing through it.
 		switch {
 		case e.Advisories <= 0:
-			parts["history"] = 0
-		case e.Advisories == 1:
-			parts["history"] = 6
-		case e.Advisories == 2:
-			parts["history"] = 8
-		default:
+			parts["history"] = 4
+		case e.Advisories <= 2:
 			parts["history"] = 10
+		case e.Advisories == 3:
+			parts["history"] = 7
+		case e.Advisories <= 5:
+			parts["history"] = 5
+		case e.Advisories <= 9:
+			parts["history"] = 3
+		default:
+			parts["history"] = 1
 		}
 		if contactHandledByProgram {
 			parts["responsiveness"] = 5 // neutral: Wordfence / the Jenkins security team chase the vendor, not you
@@ -94,7 +103,7 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 	}
 
 	weights := map[string]float64{
-		"sinks": w.Sinks, "surface": w.Surface, "auth": w.Auth, "history": w.History,
+		"sinks": w.Sinks, "surface": w.Surface, "auth": w.Auth, "pairing": w.Pairing, "history": w.History,
 		"responsiveness": w.Responsiveness, "freshness": w.Freshness, "contact": w.Contact,
 	}
 	if s.ScoreCVEPath {

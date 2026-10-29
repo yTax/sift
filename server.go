@@ -175,6 +175,7 @@ type repoSummary struct {
 	Sinks        int            `json:"sinks"`
 	Surface      int            `json:"surface"`
 	Auth         int            `json:"auth"`
+	Paired       int            `json:"paired"`
 	Classes      map[string]int `json:"classes,omitempty"`
 	FirstSeen    time.Time      `json:"first_seen"`
 }
@@ -205,6 +206,7 @@ func summarize(r *Repo) repoSummary {
 		s.Scanned = sc.Error == ""
 		s.ScanError = sc.Error
 		s.Sinks, s.Surface, s.Auth, s.Classes = sc.SinkHits, sc.SurfaceHits, sc.AuthHits, sc.ByClass
+		s.Paired = sc.PairedFiles
 	}
 	return s
 }

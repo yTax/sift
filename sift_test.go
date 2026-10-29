@@ -406,3 +406,83 @@ func TestLoadDotEnv(t *testing.T) {
 		t.Errorf("missing file: %v", err)
 	}
 }
+
+// Same totals, different layout: the repo whose route and exec share a file must rank higher.
+func TestPairingOutranksScattered(t *testing.T) {
+	profiles, _ := loadSinkProfiles(defaultsDir(t, "sinks"))
+	var js []*SinkProfile
+	for _, p := range profiles {
+		if p.ID == "js-ts" {
+			js = append(js, p)
+		}
+	}
+	build := func(files map[string]string) *ScanResult {
+		zp := filepath.Join(t.TempDir(), "repo.zip")
+		f, _ := os.Create(zp)
+		zw := zip.NewWriter(f)
+		for name, body := range files {
+			w, _ := zw.Create("o-r-abc/" + name)
+			w.Write([]byte(body))
+		}
+		zw.Close()
+		f.Close()
+		res, err := scanZip(zp, scanOpts{Profiles: js, SkipTests: true, MaxFileSize: 1 << 20, StripPrefix: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+	route := "app.post('/run', (req, res) => {\n  res.send('ok')\n})\n"
+	sink := "const { exec } = require('child_process')\nexec(cmd)\n"
+	paired := build(map[string]string{"src/a.js": route + sink, "src/b.js": "const x = 1\n"})
+	scattered := build(map[string]string{"src/a.js": route, "src/b.js": sink})
+
+	if paired.SinkHits != scattered.SinkHits || paired.SurfaceHits != scattered.SurfaceHits {
+		t.Fatalf("fixtures should have equal totals: paired %d/%d, scattered %d/%d",
+			paired.SinkHits, paired.SurfaceHits, scattered.SinkHits, scattered.SurfaceHits)
+	}
+	if paired.PairedFiles != 1 || len(paired.HotFiles) != 1 || paired.HotFiles[0].Path != "src/a.js" || !paired.HotFiles[0].Near {
+		t.Errorf("paired: files=%d hot=%+v", paired.PairedFiles, paired.HotFiles)
+	}
+	if scattered.PairedFiles != 0 || scattered.PairedWeight != 0 {
+		t.Errorf("scattered should not pair: files=%d weight=%v", scattered.PairedFiles, scattered.PairedWeight)
+	}
+	s := defaultSettings()
+	enr := &Enrichment{PushedAt: time.Now()}
+	sp := computeScore(&Repo{Source: "github", Scan: paired, Enriched: enr}, s, false)
+	ss := computeScore(&Repo{Source: "github", Scan: scattered, Enriched: enr}, s, false)
+	if sp.Total <= ss.Total {
+		t.Errorf("paired %.1f should outrank scattered %.1f", sp.Total, ss.Total)
+	}
+}
+
+// Rebuilding pairing from stored hits (old scans) must match what the scanner records.
+func TestPairHitsFromStoredHits(t *testing.T) {
+	hits := []Hit{
+		{Path: "a.go", Line: 10, Kind: "surface"},
+		{Path: "a.go", Line: 30, Kind: "sink", Label: "exec", Class: "cmd-exec", Weight: 2},
+		{Path: "a.go", Line: 400, Kind: "sink", Label: "open", Class: "file-io", Weight: 1},
+		{Path: "b.go", Line: 5, Kind: "sink", Label: "exec", Class: "cmd-exec", Weight: 2},
+	}
+	n, w, hot := pairHits(hits)
+	if n != 1 || len(hot) != 1 || hot[0].Path != "a.go" {
+		t.Fatalf("n=%d hot=%+v", n, hot)
+	}
+	if w != 4 { // 2*1.5 near + 1 far
+		t.Errorf("weight = %v, want 4", w)
+	}
+	if strings.Join(hot[0].Classes, ",") != "cmd-exec,file-io" {
+		t.Errorf("classes = %v", hot[0].Classes)
+	}
+}
+
+// One or two past advisories is the sweet spot; a heavily picked-over repo scores lower.
+func TestHistoryPeaks(t *testing.T) {
+	s := defaultSettings()
+	h := func(n int) float64 {
+		return computeScore(&Repo{Source: "github", Enriched: &Enrichment{Advisories: n, PushedAt: time.Now()}}, s, false).Parts["history"]
+	}
+	if !(h(1) > h(0) && h(2) > h(5) && h(5) > h(15)) {
+		t.Errorf("history: 0=%v 1=%v 2=%v 5=%v 15=%v", h(0), h(1), h(2), h(5), h(15))
+	}
+}

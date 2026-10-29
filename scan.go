@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"math"
 	"path"
 	"regexp"
 	"sort"
@@ -167,6 +168,7 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 		}
 	}
 
+	res.PairedFiles, res.PairedWeight, res.HotFiles = pairHits(append(sinks, surface...))
 	sort.SliceStable(sinks, func(i, j int) bool { return sinks[i].Weight > sinks[j].Weight })
 	if len(sinks) > maxSinkHitsKept {
 		sinks = sinks[:maxSinkHitsKept]
@@ -219,6 +221,79 @@ func scanFile(name string, b []byte, pats []Pattern, kind string, hits *[]Hit, c
 			}
 		}
 	}
+}
+
+const (
+	nearLines    = 40 // a sink this close to a surface is probably in the same handler
+	maxHotFiles  = 15
+	nearBonus    = 1.5
+	hotRepeatCap = 5 // same pattern more than this many times in one file counts at 0.2, as in scanFile
+)
+
+// pairHits finds files where input enters and something dangerous happens: at least one
+// surface hit and one sink hit in the same file. That's the shape of a real bug, unlike
+// fifty sinks in one file and fifty routes in another.
+func pairHits(hits []Hit) (int, float64, []HotFile) {
+	type fileHits struct{ surface, sinks []Hit }
+	byPath := map[string]*fileHits{}
+	for _, h := range hits {
+		fh := byPath[h.Path]
+		if fh == nil {
+			fh = &fileHits{}
+			byPath[h.Path] = fh
+		}
+		switch h.Kind {
+		case "surface":
+			fh.surface = append(fh.surface, h)
+		case "sink":
+			fh.sinks = append(fh.sinks, h)
+		}
+	}
+	var hot []HotFile
+	total := 0.0
+	for p, fh := range byPath {
+		if len(fh.surface) == 0 || len(fh.sinks) == 0 {
+			continue
+		}
+		hf := HotFile{Path: p}
+		seen := map[string]int{}
+		classes := map[string]bool{}
+		for _, s := range fh.sinks {
+			w := s.Weight
+			if seen[s.Label]++; seen[s.Label] > hotRepeatCap {
+				w *= 0.2
+			}
+			for _, su := range fh.surface {
+				if d := s.Line - su.Line; d >= -nearLines && d <= nearLines {
+					w *= nearBonus
+					hf.Near = true
+					break
+				}
+			}
+			hf.Weight += w
+			if s.Class != "" {
+				classes[s.Class] = true
+			}
+		}
+		for c := range classes {
+			hf.Classes = append(hf.Classes, c)
+		}
+		sort.Strings(hf.Classes)
+		hf.Weight = math.Round(hf.Weight*10) / 10
+		total += hf.Weight
+		hot = append(hot, hf)
+	}
+	sort.Slice(hot, func(i, j int) bool {
+		if hot[i].Weight != hot[j].Weight {
+			return hot[i].Weight > hot[j].Weight
+		}
+		return hot[i].Path < hot[j].Path
+	})
+	n := len(hot)
+	if len(hot) > maxHotFiles {
+		hot = hot[:maxHotFiles]
+	}
+	return n, math.Round(total*10) / 10, hot
 }
 
 // profilesFor returns the sink profiles a category asked for (all when it names none).
