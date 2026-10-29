@@ -70,6 +70,7 @@ type scanOpts struct {
 	SkipTests   bool
 	MaxFileSize int64
 	StripPrefix bool // drop the first path component (zipball / plugin folder)
+	Checkers    []*Checker
 }
 
 const (
@@ -123,6 +124,7 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	}
 	res := &ScanResult{At: time.Now(), ByClass: map[string]int{}}
 	var sinks, surface, auth []Hit
+	var findings []Finding
 
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
@@ -161,6 +163,9 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 		res.Files++
 		res.Bytes += int64(len(b))
 
+		if len(opts.Checkers) > 0 && len(findings) < maxFindingsPerRepo {
+			findings = append(findings, runCheckers(name, b, opts.Checkers)...)
+		}
 		for _, p := range profs {
 			scanFile(name, b, p.Surface, "surface", &surface, &res.SurfaceHits, nil, nil)
 			scanFile(name, b, p.Sinks, "sink", &sinks, &res.SinkHits, &res.WeightedSinks, res.ByClass)
@@ -169,6 +174,14 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	}
 
 	res.PairedFiles, res.PairedWeight, res.HotFiles = pairHits(append(sinks, surface...))
+	sort.SliceStable(findings, func(i, j int) bool { return findings[i].Weight > findings[j].Weight })
+	if len(findings) > maxFindingsPerRepo {
+		findings = findings[:maxFindingsPerRepo]
+	}
+	for _, f := range findings {
+		res.FindingsWeight += f.Weight
+	}
+	res.Findings = findings
 	sort.SliceStable(sinks, func(i, j int) bool { return sinks[i].Weight > sinks[j].Weight })
 	if len(sinks) > maxSinkHitsKept {
 		sinks = sinks[:maxSinkHitsKept]

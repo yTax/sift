@@ -833,7 +833,11 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 	}
 	a.logf("scan: downloading and grepping %d repos (%d at a time)", len(targets), max(1, s.Concurrency))
 	maxBytes := int64(s.MaxRepoSizeMB) << 20
-	opts := scanOpts{SkipTests: s.SkipTests, MaxFileSize: int64(s.ScanMaxFileKB) << 10, StripPrefix: true}
+	checkers, chErrs := loadCheckers(filepath.Join(a.base, "checkers"))
+	for _, e := range chErrs {
+		a.warnf("checker %s: %s", e.File, e.Error)
+	}
+	opts := scanOpts{SkipTests: s.SkipTests, MaxFileSize: int64(s.ScanMaxFileKB) << 10, StripPrefix: true, Checkers: checkers}
 
 	var mu sync.Mutex
 	done, scanned := 0, 0

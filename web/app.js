@@ -6,6 +6,7 @@
 const PAGE = 150;
 
 const PART_LABELS = {
+  findings: "Checker findings",
   pairing: "Input + sink in one file",
   sinks: "Dangerous calls",
   surface: "Input entry points",
@@ -124,6 +125,7 @@ function filtered() {
   const key = {
     score: (r) => (r.score ? r.score.total : -1),
     paired: (r) => r.paired || 0,
+    findings: (r) => (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
     stars: (r) => r.popularity || 0,
     pushed: (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0),
   }[sort];
@@ -139,6 +141,7 @@ function rowEl(r) {
       r.description ? h("div", { class: "desc" }, r.description) : null),
     h("div", { class: "col-extra chips" },
       routeChip(r.cve_path),
+      r.findings ? h("span", { class: "chip bad" }, r.findings + " finding" + (r.findings > 1 ? "s" : "")) : null,
       r.paired ? h("span", { class: "chip" }, r.paired + " paired") : null,
       r.advisories > 0 ? h("span", { class: "chip" }, r.advisories + " GHSA") : null,
       r.sec_issues > 0 ? h("span", { class: "chip warn" }, r.sec_issues + " open security issue" + (r.sec_issues > 1 ? "s" : "")) : null),
@@ -200,6 +203,27 @@ function reportCard(repo) {
       h("li", null, h("span", { class: "chip" }, c.kind), " ",
         safeURL(c.url) ? ext(c.url, c.value || c.url) : c.value,
         c.where ? h("span", { class: "muted" }, " · " + c.where) : null))) : null);
+}
+
+function findingsCard(repo) {
+  const sc = repo.scan;
+  const list = (sc && sc.findings) || [];
+  if (!list.length) return null;
+  return h("section", { class: "card" },
+    h("h2", null, "Checker findings (" + list.length + "): read these lines first"),
+    h("p", { class: "muted" }, "Text-level checks, not proof. Each one says which input reached which call; confirm by reading the function."),
+    h("ul", { class: "plain" }, list.map((f) => {
+      const href = ghLink(repo, sc.ref, f.path, f.line);
+      const loc = f.path + ":" + f.line;
+      return h("li", null,
+        h("div", null,
+          h("span", { class: "chip " + (f.confidence === "high" ? "bad" : "warn") }, f.confidence), " ",
+          h("span", { class: "chip" }, f.class), " ",
+          href ? ext(href, h("span", { class: "mono" }, loc)) : h("span", { class: "mono" }, loc),
+          f.func ? h("span", { class: "muted" }, " in " + f.func + "()") : null),
+        h("div", { class: "muted" }, f.message + (f.via ? " (via " + f.via + ")" : "")),
+        h("div", { class: "snip" }, f.snippet));
+    })));
 }
 
 function hotCard(repo) {
@@ -342,6 +366,7 @@ async function openDetail(key, keepScroll) {
         h("h1", null, safeURL(repo.url) ? ext(repo.url, repo.name) : repo.name),
         repo.description ? h("div", { class: "muted" }, repo.description) : null)),
     triageCard(repo),
+    findingsCard(repo),
     hotCard(repo),
     knownCard(repo),
     reportCard(repo),

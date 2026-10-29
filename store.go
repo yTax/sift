@@ -88,6 +88,9 @@ type ScanResult struct {
 	PairedFiles  int       `json:"paired_files"`
 	PairedWeight float64   `json:"paired_weight"`
 	HotFiles     []HotFile `json:"hot_files,omitempty"` // best first: where to start reading
+	// Checker results (plan 12): specific lines that look like a known bug class.
+	Findings       []Finding `json:"findings,omitempty"`
+	FindingsWeight float64   `json:"findings_weight"`
 }
 
 type HotFile struct {

@@ -1,0 +1,36 @@
+id: shell-from-input
+class: cmd-exec
+weight: 4
+message: Handler input reaches a command that runs through a shell
+
+langs:
+  js-ts:
+    sinks:
+      - '(^|[^.\w]|child_process\.|cp\.)(exec|execSync)\('
+      - '\bexeca(Command|CommandSync)?\('
+      - '\b(spawn|spawnSync)\([^)]*shell:\s*true'
+      - '\bshell\.exec\('
+    guards:
+      - 'shell-quote|shellQuote|shellescape|escapeShellArg|quote\(\s*\['
+      - '\b(allowedCommands|ALLOWED_COMMANDS|commandAllowlist|allowlist|whitelist)\b'
+  python:
+    sinks:
+      - '\bsubprocess\.\w+\(.*shell\s*=\s*True'
+      - '\bos\.(system|popen)\('
+      - '\basyncio\.create_subprocess_shell\('
+      - '\bcommands\.getoutput\('
+    guards:
+      - 'shlex\.quote\('
+      - '\b(ALLOWED_COMMANDS|allowed_commands|allowlist|whitelist)\b'
+  go:
+    sinks:
+      - 'exec\.Command(Context)?\([^)]*"(sh|bash|zsh|/bin/sh|/bin/bash|cmd|cmd\.exe|powershell|pwsh)"\s*,\s*[^)]*"(-c|/c|-Command)"'
+    guards:
+      - 'shellescape|shellquote'
+      - '\b(allowedCommands|allowlist|whitelist)\b'
+  php:
+    sinks:
+      - '\b(system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\('
+      - '`[^`]*\$'
+    line_guards:
+      - '\bescapeshellarg\(|\bescapeshellcmd\('

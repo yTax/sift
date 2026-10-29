@@ -1,0 +1,32 @@
+id: xss-from-input
+class: xss
+weight: 2.5
+message: Request input is written into an HTML response without escaping
+
+langs:
+  php:
+    sinks:
+      - '^\s*(echo|print)\b'
+      - '<\?=\s*'
+      - '\b(printf|vprintf)\('
+    line_guards:
+      - '\besc_(html|attr|url|js|textarea|xml)\w*\(|\bwp_kses\w*\(|\bhtmlspecialchars\(|\bhtmlentities\(|\bintval\(|\babsint\(|\(int\)\s*\$|\bjson_encode\(|\bwp_json_encode\(|\bsanitize_(key|text_field|email|title)\(|\burlencode\(|\brawurlencode\(|\bnumber_format\('
+      - '\bwp_send_json\w*\('
+  js-ts:
+    interpolated: true
+    sinks:
+      - '\bres\.(send|write|end)\(\s*[`''"]'
+      - '\.innerHTML\s*=|\.outerHTML\s*=|insertAdjacentHTML\('
+    requires:
+      - '<[a-zA-Z/!]'
+    line_guards:
+      - '\b(escape|escapeHtml|escapeHTML|sanitize|DOMPurify|encode)\w*\('
+  python:
+    interpolated: true
+    sinks:
+      - '\brender_template_string\('
+      - '\b(make_response|HTMLResponse|HttpResponse|Response)\('
+      - '\bMarkup\('
+      - '^\s*return\s+f?[''"].*<\w'
+    line_guards:
+      - '\b(escape|html\.escape|bleach\.clean|markupsafe\.escape)\('

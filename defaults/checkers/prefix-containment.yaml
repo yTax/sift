@@ -1,0 +1,36 @@
+id: prefix-containment
+class: path-traversal
+weight: 3
+message: Directory containment checked with a plain prefix match, so a sibling like /data-evil passes a check for /data
+
+# The line is the bug, whatever flows into it: no_input. "requires" keeps it to functions that
+# actually resolve paths, so URL or string prefix checks don't fire.
+langs:
+  js-ts:
+    no_input: true
+    sinks:
+      - '\.startsWith\(\s*[\w$.]*(dir|Dir|DIR|root|Root|ROOT|base|Base|BASE|allowed|Allowed|workspace|Workspace|home|Home|sandbox|Sandbox)[\w$]*\s*\)'
+    requires:
+      - 'path\.(resolve|normalize|join)\(|realpath'
+    guards:
+      - 'path\.relative\('
+      - '\+\s*path\.sep|\+\s*[''"`]/[''"`]|path\.sep\s*\)'
+      - 'endsWith\(\s*path\.sep|endsWith\(\s*[''"`]/[''"`]'
+  python:
+    no_input: true
+    sinks:
+      - '\.startswith\(\s*(str\()?[\w.]*(dir|root|base|allowed|workspace|home|sandbox)\w*\)?\s*\)'
+    requires:
+      - 'os\.path\.(abspath|realpath|normpath|join)|\.resolve\(|Path\('
+    guards:
+      - 'os\.path\.commonpath|is_relative_to\(|relative_to\('
+      - '\+\s*os\.sep|os\.sep\s*\)|\+\s*[''"]/[''"]'
+  go:
+    no_input: true
+    sinks:
+      - 'strings\.HasPrefix\(\s*[\w.]+\s*,\s*[\w.]*(dir|Dir|root|Root|base|Base|allowed|Allowed|workspace|Workspace|home|Home|sandbox|Sandbox)\w*\s*\)'
+    requires:
+      - 'filepath\.(Abs|Clean|Join|EvalSymlinks)\('
+    guards:
+      - 'filepath\.Rel\(|filepath\.IsLocal\('
+      - 'string\(filepath\.Separator\)|string\(os\.PathSeparator\)|\+\s*"/"'

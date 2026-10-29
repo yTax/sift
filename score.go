@@ -37,6 +37,7 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 		parts["surface"] = logScale(float64(r.Scan.SurfaceHits), 450)
 		parts["auth"] = logScale(float64(r.Scan.AuthHits), 450)
 		parts["pairing"] = logScale(r.Scan.PairedWeight, 150)
+		parts["findings"] = logScale(r.Scan.FindingsWeight, 20) // one high-confidence shell finding is ~4
 	}
 	e := r.Enriched
 	if e != nil {
@@ -103,7 +104,7 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 	}
 
 	weights := map[string]float64{
-		"sinks": w.Sinks, "surface": w.Surface, "auth": w.Auth, "pairing": w.Pairing, "history": w.History,
+		"sinks": w.Sinks, "surface": w.Surface, "auth": w.Auth, "pairing": w.Pairing, "findings": w.Findings, "history": w.History,
 		"responsiveness": w.Responsiveness, "freshness": w.Freshness, "contact": w.Contact,
 	}
 	if s.ScoreCVEPath {

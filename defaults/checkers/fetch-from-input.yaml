@@ -1,0 +1,46 @@
+id: fetch-from-input
+class: ssrf
+weight: 2.5
+message: Handler input is used as the URL of an outbound request with no host check (SSRF)
+
+langs:
+  js-ts:
+    sinks:
+      - '(^|[^.\w])fetch\('
+      - '\baxios(\.(get|post|put|patch|delete|head|request))?\('
+      - '\bgot(\.(get|post))?\('
+      - '\bhttps?\.(get|request)\('
+      - '\bneedle\(|\bsuperagent\.(get|post)\('
+    guards:
+      - '\b(allowedHosts|ALLOWED_HOSTS|allowedDomains|allowlist|whitelist|blocklist|denylist)\b'
+      - 'isPrivate|private_?ip|isLoopback|ssrf|ipaddr|is-ip|isInternal'
+      - '\.hostname\s*(===|!==|==|!=)|\.host\s*(===|!==)|hostname\)\s*\)'
+      - 'new URL\([^,)]*,\s*[\w.]*(BASE|base|Base)'
+  python:
+    sinks:
+      - '\b(requests|httpx|session|client)\.(get|post|put|patch|delete|head|request|stream)\('
+      - '\burlopen\('
+      - '\burllib\.request\.Request\('
+      - '\baiohttp\.ClientSession\(\)\.(get|post)\(|\bsession\.(get|post)\('
+    guards:
+      - '\b(ALLOWED_HOSTS|allowed_hosts|allowed_domains|allowlist|whitelist|blocklist|denylist)\b'
+      - 'ipaddress\.|is_private|is_loopback|ssrf'
+      - 'urlparse\([^)]*\)\.(hostname|netloc)\s*(not )?in\b|\.hostname\s*(==|!=|not in|in)\b'
+  go:
+    sinks:
+      - '\bhttp\.(Get|Post|Head|PostForm)\('
+      - '\bhttp\.NewRequest(WithContext)?\('
+      - '\bclient\.(Get|Post|Head)\('
+    guards:
+      - '\b(allowedHosts|allowlist|whitelist|blocklist|denylist)\b'
+      - 'IsPrivate\(\)|IsLoopback\(\)|ssrf'
+      - '\.Hostname\(\)\s*(==|!=)'
+  php:
+    sinks:
+      - '\bwp_remote_(get|post|request|head)\(|\bwp_safe_remote_(get|post|request)\('
+      - '\bcurl_init\(|CURLOPT_URL'
+      - '\bfile_get_contents\(\s*\$'
+    line_guards:
+      - '\bwp_safe_remote_'
+    guards:
+      - '\bwp_http_validate_url\(|allowed_hosts|allowlist|whitelist'

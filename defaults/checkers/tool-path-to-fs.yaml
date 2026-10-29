@@ -1,0 +1,55 @@
+id: tool-path-to-fs
+class: path-traversal
+weight: 3
+message: Handler input reaches a filesystem call with no containment check in the function
+
+langs:
+  js-ts:
+    sinks:
+      - '\b(fs|fsp|fse|promises|fs\.promises)\.(readFile|readFileSync|writeFile|writeFileSync|createReadStream|createWriteStream|appendFile|appendFileSync|unlink|unlinkSync|rm|rmSync|rmdir|readdir|readdirSync|copyFile|rename|mkdir|stat|lstat|open|access|symlink|cp)\('
+      - '\bres\.(sendFile|download)\('
+      - '(^|[^.\w])(readFile|readFileSync|writeFile|writeFileSync|createReadStream|createWriteStream|unlink|readdir|rm|copyFile)\('
+    guards:
+      - 'path\.relative\('
+      - '\.startsWith\([^)]*(sep|[''"`]/[''"`])'
+      - 'realpath'
+      - 'isPathInside|is-path-inside|pathIsInside|isSubPath|isWithin'
+      - '\b(validate|sanitize|check|verify|assert|ensure|resolveSafe|safe)\w*(Path|File|Dir)\w*\('
+      - 'includes\(\s*[''"`]\.\.[''"`]\s*\)'
+      - 'allowedDirectories|allowedPaths|allowedRoots'
+  python:
+    sinks:
+      - '(^|[^.\w])open\('
+      - '\b(os\.(remove|unlink|rmdir|makedirs|mkdir|listdir|scandir|rename|replace)|shutil\.(rmtree|copy\w*|move))\('
+      - '\.(read_text|read_bytes|write_text|write_bytes|unlink|rmdir|iterdir)\('
+      - '\b(send_file|send_from_directory|FileResponse)\('
+      - '\baiofiles\.open\('
+    guards:
+      - 'os\.path\.(commonpath|commonprefix|realpath)'
+      - '\.resolve\(\)'
+      - 'is_relative_to\(|relative_to\('
+      - 'secure_filename\('
+      - '[''"]\.\.[''"]\s+in\b'
+      - '\b(validate|sanitize|check|verify|ensure|safe|resolve_safe)_?\w*(path|file|dir)\w*\('
+      - 'allowed_(dirs|directories|paths|roots)'
+  go:
+    sinks:
+      - '\bos\.(Open|OpenFile|ReadFile|WriteFile|Create|Remove|RemoveAll|ReadDir|Mkdir|MkdirAll|Rename|Stat|Lstat)\('
+      - '\bhttp\.ServeFile\('
+      - '\bioutil\.(ReadFile|WriteFile|ReadDir)\('
+    guards:
+      - 'filepath\.(Rel|IsLocal)\('
+      - 'strings\.Contains\([^)]*"\.\."'
+      - 'os\.OpenRoot|\.OpenRoot\(|securejoin'
+      - 'EvalSymlinks'
+      - '\b(validate|sanitize|check|verify|ensure|safe)\w*(Path|File|Dir)\w*\('
+  php:
+    sinks:
+      - '\b(include|include_once|require|require_once)\b\s*\(?'
+      - '\b(file_get_contents|file_put_contents|fopen|readfile|unlink|file|copy|rename|mkdir|rmdir|scandir|opendir|is_file|filesize)\('
+    line_guards:
+      - '\bbasename\('
+    guards:
+      - '\brealpath\('
+      - 'validate_file\(|sanitize_file_name\('
+      - 'strpos\([^)]*\.\.|str_contains\([^)]*\.\.'
