@@ -5,6 +5,7 @@ message: Handler input reaches a filesystem call with no containment check in th
 
 langs:
   js-ts:
+    arg: first
     sinks:
       - '\b(fs|fsp|fse|promises|fs\.promises)\.(readFile|readFileSync|writeFile|writeFileSync|createReadStream|createWriteStream|appendFile|appendFileSync|unlink|unlinkSync|rm|rmSync|rmdir|readdir|readdirSync|copyFile|rename|mkdir|stat|lstat|open|access|symlink|cp)\('
       - '\bres\.(sendFile|download)\('
@@ -18,10 +19,11 @@ langs:
       - 'includes\(\s*[''"`]\.\.[''"`]\s*\)'
       - 'allowedDirectories|allowedPaths|allowedRoots'
   python:
+    arg: first
     sinks:
       - '(^|[^.\w])open\('
       - '\b(os\.(remove|unlink|rmdir|makedirs|mkdir|listdir|scandir|rename|replace)|shutil\.(rmtree|copy\w*|move))\('
-      - '\.(read_text|read_bytes|write_text|write_bytes|unlink|rmdir|iterdir)\('
+      - '(?P<arg>[\w.]+(\([^()]*\))?)\.(read_text|read_bytes|write_text|write_bytes|unlink|rmdir|iterdir|open|mkdir)\('
       - '\b(send_file|send_from_directory|FileResponse)\('
       - '\baiofiles\.open\('
     guards:
@@ -33,6 +35,7 @@ langs:
       - '\b(validate|sanitize|check|verify|ensure|safe|resolve_safe)_?\w*(path|file|dir)\w*\('
       - 'allowed_(dirs|directories|paths|roots)'
   go:
+    arg: first
     sinks:
       - '\bos\.(Open|OpenFile|ReadFile|WriteFile|Create|Remove|RemoveAll|ReadDir|Mkdir|MkdirAll|Rename|Stat|Lstat)\('
       - '\bhttp\.ServeFile\('

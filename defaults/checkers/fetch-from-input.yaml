@@ -5,6 +5,7 @@ message: Handler input is used as the URL of an outbound request with no host ch
 
 langs:
   js-ts:
+    arg: url-start
     sinks:
       - '(^|[^.\w])fetch\('
       - '\baxios(\.(get|post|put|patch|delete|head|request))?\('
@@ -17,8 +18,9 @@ langs:
       - '\.hostname\s*(===|!==|==|!=)|\.host\s*(===|!==)|hostname\)\s*\)'
       - 'new URL\([^,)]*,\s*[\w.]*(BASE|base|Base)'
   python:
+    arg: url-start
     sinks:
-      - '\b(requests|httpx|session|client)\.(get|post|put|patch|delete|head|request|stream)\('
+      - '\b(requests|httpx|client|http_client|async_client|http)\.(get|post|put|patch|delete|head|request)\('
       - '\burlopen\('
       - '\burllib\.request\.Request\('
       - '\baiohttp\.ClientSession\(\)\.(get|post)\(|\bsession\.(get|post)\('
@@ -27,6 +29,7 @@ langs:
       - 'ipaddress\.|is_private|is_loopback|ssrf'
       - 'urlparse\([^)]*\)\.(hostname|netloc)\s*(not )?in\b|\.hostname\s*(==|!=|not in|in)\b'
   go:
+    arg: url-start
     sinks:
       - '\bhttp\.(Get|Post|Head|PostForm)\('
       - '\bhttp\.NewRequest(WithContext)?\('
@@ -36,6 +39,7 @@ langs:
       - 'IsPrivate\(\)|IsLoopback\(\)|ssrf'
       - '\.Hostname\(\)\s*(==|!=)'
   php:
+    arg: url-start
     sinks:
       - '\bwp_remote_(get|post|request|head)\(|\bwp_safe_remote_(get|post|request)\('
       - '\bcurl_init\(|CURLOPT_URL'

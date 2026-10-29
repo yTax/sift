@@ -39,6 +39,11 @@ type checkerLang struct {
 	Interpolated bool `yaml:"interpolated"`
 	// LineGuards silence a finding only when they're on the sink line itself (esc_html(...), prepare(...)).
 	LineGuards []string `yaml:"line_guards"`
+	// Arg narrows where input has to appear: "first" = the first argument (the path of a file
+	// call, not the data written), "url-start" = what decides the host of the first argument,
+	// so input that only fills in a path on a fixed host isn't called SSRF. A sink regex with
+	// a group named arg (e.g. the receiver of p.write_text()) uses that group's text instead.
+	Arg string `yaml:"arg"`
 
 	sinks, guards, requires, lineGuards []*regexp.Regexp
 }
@@ -55,6 +60,10 @@ type Finding struct {
 	Confidence string `json:"confidence"` // high: an input reaches the sink directly; medium: through assignments
 	Weight     float64 `json:"weight"`
 }
+
+// Build, CI and dev scripts run on the developer's machine with their own arguments; nothing
+// there is reachable by an attacker, so checkers skip them.
+var checkerSkipPath = regexp.MustCompile(`(^|/)(scripts?|ci|hack|loadtest|load-tests?|benchmarks?|bench|e2e|smoke|harness|devtools|\.github|\.husky)/|\.config\.(js|mjs|cjs|ts)$`)
 
 const (
 	maxFindingsPerRepo = 100
@@ -173,17 +182,23 @@ var (
 		regexp.MustCompile(`(?m)^[ \t]*(?:(?:public|private|protected|static|async|override)\s+)*([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*(?::\s*[^{;]+)?\{`),
 	}
 	// a handler registered on a route/tool: whatever it receives is input
-	jsRegister = regexp.MustCompile(`\.(tool|registerTool|addTool|get|post|put|patch|delete|all|handle|setRequestHandler|route)\s*\(`)
-	jsInputNames = map[string]bool{"req": true, "request": true, "args": true, "arguments": true, "params": true, "input": true, "ctx": true, "body": true, "query": true}
+	// The route must be a literal path and the tool a literal name, so client calls like
+	// api.get(url).then(...) don't count as registering a handler.
+	jsRegister   = regexp.MustCompile("\\.(tool|registerTool|addTool|prompt|resource)\\(\\s*['\"`{]|\\.(get|post|put|patch|delete|all|route)\\(\\s*['\"`]/|setRequestHandler\\(\\s*\\w*(CallTool|ReadResource|GetPrompt)RequestSchema")
+	jsInputNames = map[string]bool{"req": true, "request": true}
+	jsHandlerSig = regexp.MustCompile(`\b(res|reply|next)\b|:\s*\w*Request\b|NextRequest|FastifyRequest`)
+	jsVerbName   = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 	jsKeywords   = map[string]bool{"if": true, "for": true, "while": true, "switch": true, "catch": true, "function": true, "return": true, "with": true}
 
 	pyHead     = regexp.MustCompile(`(?m)^([ \t]*)(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(`)
-	pyRegister = regexp.MustCompile(`^\s*@\s*[\w.]*\.?(tool|get|post|put|patch|delete|route|api_route|websocket|call_tool|resource|prompt|command)\b`)
-	pyInputs   = map[string]bool{"request": true, "req": true, "args": true, "arguments": true, "params": true, "payload": true, "body": true}
+	pyRegister = regexp.MustCompile(`^\s*@\s*[\w.]*\.?(tool|get|post|put|patch|delete|route|api_route|websocket|call_tool|resource|prompt)\b`)
+	pyInputs   = map[string]bool{"request": true}
 
 	goHead      = regexp.MustCompile(`func\s*(?:\([^)]*\)\s*)?(\w*)\s*\(([^)]*)\)`)
 	phpHead     = regexp.MustCompile(`\bfunction\s*&?\s*(\w*)\s*\(([^)]*)\)`)
-	goInputType = regexp.MustCompile(`\*http\.Request|gin\.Context|echo\.Context|fiber\.Ctx|CallToolRequest|mcp\.\w*Request`)
+	// framework contexts and MCP tool requests are always inbound; *http.Request only counts next
+	// to a ResponseWriter, since client code passes outbound requests around too
+	goInputType = regexp.MustCompile(`gin\.Context|echo\.Context|fiber\.Ctx|CallToolRequest|mcp\.\w*Request`)
 
 	identRe = regexp.MustCompile(`[A-Za-z_$][\w$]*`)
 
@@ -195,8 +210,8 @@ var (
 
 // sources are input expressions that need no parameter, e.g. Flask's global request.
 var checkerSources = map[string]*regexp.Regexp{
-	"js-ts":  regexp.MustCompile(`\breq\.(query|params|body|headers|cookies|files)\b|\bctx\.(query|params|request\.body)\b|\bprocess\.argv\b`),
-	"python": regexp.MustCompile(`\brequest\.(args|form|json|values|files|data|get_json|query_params|path_params|cookies|headers|GET|POST)\b|\bsys\.argv\b`),
+	"js-ts":  regexp.MustCompile(`\breq\.(query|params|body|headers|cookies|files)\b|\bctx\.(query|params|request\.body)\b`),
+	"python": regexp.MustCompile(`\brequest\.(args|form|json|values|files|data|get_json|query_params|path_params|cookies|headers|GET|POST)\b`),
 	"go":     regexp.MustCompile(`\.URL\.Query\(\)|\.FormValue\(|\.PostFormValue\(|\.PathValue\(|\bc\.(Query|Param|PostForm|FormValue)\(|GetArguments\(\)|\.Params\.Arguments`),
 	"php":    regexp.MustCompile(`\$_(GET|POST|REQUEST|COOKIE|FILES)\b|\$_SERVER\[\s*['"](HTTP_\w+|REQUEST_URI|QUERY_STRING|PHP_SELF|PATH_INFO)['"]|php://input|->get_(param|params|json_params|body_params|query_params|file_params)\(`),
 }
@@ -333,17 +348,20 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 			from := max(0, headOff-600)
 			registered := false
 			if locs := jsRegister.FindAllStringIndex(src[from:headOff], -1); len(locs) > 0 {
-				between := src[from+locs[len(locs)-1][1] : headOff]
-				registered = !strings.Contains(between, ";") && !strings.Contains(between, "\n\n")
+				between := src[from+locs[len(locs)-1][0] : headOff]
+				// still inside the registering call's parentheses
+				registered = !strings.Contains(between, ";") && strings.Count(between, "(") > strings.Count(between, ")")
 			}
+			handler := registered || jsHandlerSig.MatchString(params) || jsVerbName[name]
 			for _, n := range names {
-				if registered || jsInputNames[n] {
+				if registered || handler && jsInputNames[n] {
 					f.inputs = append(f.inputs, n)
 				}
 			}
 		case "go":
+			httpHandler := strings.Contains(params, "http.ResponseWriter") && strings.Contains(params, "*http.Request")
 			for _, p := range strings.Split(params, ",") {
-				if goInputType.MatchString(p) {
+				if goInputType.MatchString(p) || httpHandler && strings.Contains(p, "*http.Request") {
 					if parts := strings.Fields(strings.TrimSpace(p)); len(parts) >= 2 {
 						f.inputs = append(f.inputs, parts[0])
 					}
@@ -473,7 +491,7 @@ func containsName(s string, names map[string]bool) string {
 // runCheckers returns the findings for one file.
 func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 	lang := checkerLangFor(name)
-	if lang == "" || len(checkers) == 0 {
+	if lang == "" || len(checkers) == 0 || checkerSkipPath.MatchString(name) {
 		return nil
 	}
 	var active []*Checker
@@ -564,18 +582,26 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 				}
 				var loc []int
 				for _, re := range l.sinks {
-					if loc = re.FindStringIndex(line); loc != nil {
+					if loc = re.FindStringSubmatchIndex(line); loc != nil {
+						if g := re.SubexpIndex("arg"); g > 0 && loc[2*g] >= 0 {
+							loc = []int{loc[0], loc[1], loc[2*g], loc[2*g+1]}
+						} else {
+							loc = loc[:2]
+						}
 						break
 					}
 				}
-				if loc == nil {
-					continue
+				if loc == nil || i == f.head || defLine.MatchString(line) {
+					continue // a method named exec() is not a call to exec()
 				}
 				via, conf := "", "medium"
 				if !l.NoInput {
 					args := line[loc[0]:]
 					if i+1 <= f.end {
 						args += " " + lines[i+1] // calls often wrap
+					}
+					if args = narrowArg(l, line, args, loc); args == "" {
+						continue
 					}
 					if l.Interpolated {
 						via, conf = interpolatedInput(interp, lang, args, source, direct, tainted, built)
@@ -702,6 +728,65 @@ func wpAuthzFindings(name, src string, lines []string, starts []int, fns []fnSpa
 		}
 	}
 	return out
+}
+
+var defLine = regexp.MustCompile(`^\s*(export\s+)?((async|static|private|public|protected)\s+)*(def|function|func)\b|^\s*((async|static|private|public|protected)\s+)+[\w$]+\s*\(`)
+
+// narrowArg cuts the call text down to the part where input matters (see checkerLang.Arg).
+// An empty result means "nothing there can carry input".
+func narrowArg(l *checkerLang, line, args string, loc []int) string {
+	if len(loc) == 4 {
+		return line[loc[2]:loc[3]]
+	}
+	if l.Arg == "" {
+		return args
+	}
+	open := strings.IndexByte(args, '(')
+	if open < 0 {
+		return args
+	}
+	depth, end := 0, len(args)
+scan:
+	for i := open + 1; i < len(args); i++ {
+		switch args[i] {
+		case '(', '[', '{':
+			depth++
+		case ')', ']', '}':
+			if depth == 0 {
+				end = i
+				break scan
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				end = i
+				break scan
+			}
+		}
+	}
+	first := strings.TrimSpace(args[open+1 : end])
+	if l.Arg != "url-start" {
+		return first
+	}
+	// keep only what decides scheme and host
+	first = strings.TrimSpace(strings.TrimPrefix(first, "await "))
+	switch {
+	case strings.HasPrefix(first, "`${"):
+		first = first[3:]
+	case strings.HasPrefix(first, `f"{`), strings.HasPrefix(first, "f'{"):
+		first = first[3:]
+	case strings.HasPrefix(first, `"`), strings.HasPrefix(first, "'"), strings.HasPrefix(first, "`"),
+		strings.HasPrefix(first, `f"`), strings.HasPrefix(first, "f'"):
+		return "" // starts with a literal: the host is fixed
+	}
+	if i := strings.IndexAny(first, "}+/"); i >= 0 {
+		first = first[:i]
+	}
+	first = strings.TrimSpace(first)
+	if first == "" || strings.ToUpper(first) == first { // BASE_URL, API_ROOT: a constant host
+		return ""
+	}
+	return first
 }
 
 // interpolatedInput finds input pasted into a string in args: a source or input name inside a

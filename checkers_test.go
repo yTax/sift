@@ -273,6 +273,56 @@ register_rest_route('mp/v1', '/item/(?P<id>\d+)', array(
 	'callback' => 'mp_delete_item',
 	'permission_callback' => '__return_true',
 ));`, true},
+	// --- false positives seen on real MCP repos ---
+	{"tool-path-to-fs", "input is the data written, not the path", "agent_bridge.py", `
+@app.post("/save")
+def save(request: SaveRequest):
+    p = Path(DATA_DIR) / "latest.json"
+    p.write_text(request.content)
+`, false},
+	{"tool-path-to-fs", "receiver path built from input", "agent_bridge.py", `
+@app.post("/save")
+def save(name: str, content: str):
+    p = Path(DATA_DIR) / name
+    p.write_text(content)
+`, true},
+	{"tool-path-to-fs", "helper with a payload param", "store.py", `
+def persist(payload):
+    with open(tmp_path, "w") as f:
+        json.dump(payload, f)
+`, false},
+	{"tool-path-to-fs", "build script reading argv", "scripts/build.py", `
+@app.get("/x")
+def x(name):
+    open(name).read()
+`, false},
+	{"fetch-from-input", "fixed host, input only in the path", "route.ts", `
+export async function GET(req: NextRequest) {
+  const upstream = await fetch(` + "`${GATEWAY_URL}/agent/stream${req.nextUrl.search}`" + `);
+  return upstream;
+}`, false},
+	{"fetch-from-input", "client code passing a body", "api.ts", `
+export async function createMeeting(body) {
+  return fetch("/api/meetings", { method: "POST", body: JSON.stringify(body) });
+}`, false},
+	{"fetch-from-input", "go outbound retry helper", "client.go", `
+func retry(ctx context.Context, req *http.Request) (*http.Response, error) {
+	r2, err := http.NewRequestWithContext(ctx, req.Method, req.URL.String(), nil)
+	return http.DefaultClient.Do(r2)
+}`, false},
+	{"shell-from-input", "method named exec is not a call", "adb.ts", `
+class Adb {
+  async exec(...args: string[]): Promise<string> {
+    return run("adb", args);
+  }
+}`, false},
+	{"tool-path-to-fs", "promise .then callback after a client get", "client.ts", `
+function load() {
+  api.get('/files').then((list) => {
+    fs.writeFileSync(list.path, "x");
+  });
+}`, false},
+
 }
 
 func TestCheckers(t *testing.T) {
