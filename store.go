@@ -200,10 +200,19 @@ func openStore(path string) (*Store, error) {
 	return s, nil
 }
 
+// saveEvery spaces out background saves. The whole state is rewritten each time (tens of MB once
+// a few thousand repos are in), so saving after every change during a scan meant ~1 GB/min of
+// disk writes. Runs call SaveNow when they finish, so at most this much work is ever unsaved.
+const saveEvery = time.Minute
+
 func (s *Store) saver() {
+	var last time.Time
 	for range s.dirty {
-		time.Sleep(2 * time.Second) // coalesce bursts
+		if wait := saveEvery - time.Since(last); wait > 0 {
+			time.Sleep(wait)
+		}
 		_ = s.SaveNow()
+		last = time.Now()
 	}
 }
 

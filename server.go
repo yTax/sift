@@ -317,6 +317,10 @@ func (a *App) hRepoUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no such repo")
 		return
 	}
+	if err := a.store.SaveNow(); err != nil { // your marks and notes shouldn't wait for the next background save
+		writeErr(w, 500, "saved in memory but not to disk: "+err.Error())
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
