@@ -24,6 +24,19 @@ and a setting to auto-run it at the end of a normal run (default off).
 
 Guardrails: hard timeout per repo, cap target size, run with `--metrics=off`, and sandbox the temp dir (treat the downloaded code as untrusted — don't run anything from inside it, only point semgrep at it).
 
+### Extraction is the risky part — do it carefully
+Today's scanner never extracts anything (it reads zip entries in memory), so it can't be zip-slipped. This plan *does* extract, so it reintroduces that bug class — in a tool built to find it. Rules for the extractor (`extractZip(zipPath, dest string, maxBytes int64)` in `taint.go`):
+- Clean every entry name; reject absolute paths, drive letters, and anything whose cleaned path escapes `dest` (`filepath.Rel(dest, target)` starting with `..`). On Go 1.24+ you can open `dest` with `os.OpenRoot` and create files through the `*os.Root`, which refuses escapes for you — prefer that.
+- Skip symlinks and any non-regular entry (check `f.Mode()`); never follow links.
+- Enforce the same total-size and per-file caps as the scanner while copying (decompressed size, not the header's claimed size — zip bombs lie), and cap the entry count.
+- Create files `0o600`, dirs `0o700`, under a fresh `os.MkdirTemp` inside `data/tmp`, and `RemoveAll` it in a `defer`.
+- Tests: a fixture zip with `../../evil`, `/abs`, a symlink entry, and an oversized entry — assert none lands outside `dest` and the oversized one aborts.
+
+### Expectations and platform notes
+- **Semgrep CE taint is mostly intra-file / intra-procedural.** It catches `req.query.x → exec(...)` in one handler, not input that crosses several files or framework magic. Treat findings as strong leads and "no findings" as "not proven safe". Cross-file taint is a paid Semgrep feature; don't design around it.
+- **Windows:** native Semgrep on Windows is newer and less reliable than Linux. Expect to run this on the Oracle box or under WSL; on Windows the `LookPath` miss just means "skip", which is fine.
+- Registry configs (`p/...`) need network on each run; cache them by saving the ruleset YAML from the registry into `semgrep/cache/` once and pointing `--config` at the local files, so runs are reproducible and work offline.
+
 ## Files
 - `taint.go` — detect, extract, invoke semgrep, parse JSON, attach findings.
 - `cmd/sift` — the `taint` subcommand.

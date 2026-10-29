@@ -28,6 +28,18 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 10 | [`10-fresh-surface.md`](docs/plans/10-fresh-surface.md) | Make "a sink appeared recently" a sortable/filterable signal — fresh code has the least competition | 1, 6 |
 | 11 | [`11-bounty-scope.md`](docs/plans/11-bounty-scope.md) | Tag candidates that are likely in a paying program so you can pick "fast CVE" vs "paid" per session | 1 |
 
+### Build order
+
+The numbers above are IDs, not the order to build in. Nothing reads the data yet (`web/index.html` is a placeholder) and the GitHub half of the pipeline has never seen real results, so get a usable loop first:
+
+1. **A real run** against GitHub with a token. Fix whatever breaks before building on top of it.
+2. **Plan 5 (CLI)** — `sift run` + `sift top` is the cheapest way to actually triage. Plan 1 can come right before or after; `top` works off the JSON store too.
+3. **Plan 3a (pairing)** and **4a (known bugs)** — biggest ranking/time-saving wins.
+4. **Plan 1 (SQLite)**, then **8 (dashboard + hosting)** so it's reachable from your phone, then **6** (Discord, watch).
+5. The rest (2, 3b/3c, 4b, 7, 9, 10, 11) as they become useful.
+
+Already done: the CVE-route score part (`cve_path`, see plan 3d).
+
 ## Conventions (read before building anything)
 
 **Don't reinvent the wheel.** Use well-known libraries where they pull their weight; keep the stdlib where it's already enough. The specific picks per phase:
@@ -37,11 +49,13 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 - **Discord bot:** `github.com/bwmarrin/discordgo`. Webhooks are just an HTTP POST — no library.
 - **Semgrep, deps.dev, OSV:** no Go SDK needed. Semgrep is an external binary you shell out to and parse; deps.dev and OSV are plain HTTP + JSON (`api.deps.dev`, `api.osv.dev`).
 - **Web frontend:** keep the existing JSON API; keep the UI dependency-light (see plan 8 for the recommendation and rationale). Everything ships embedded in the binary via `go:embed` — no separate web server to deploy.
-- **Reverse proxy / TLS on Oracle:** Caddy (automatic HTTPS for an `ytax.cc` subdomain).
+- **Reverse proxy / TLS on Oracle:** nginx + certbot (Let's Encrypt) for a `ytax.cc` subdomain, with `oauth2-proxy` as the login gate. See plan 8b.
 
-**Keep the single binary.** sift is one self-contained executable with `web/` and `defaults/` embedded. Nothing in these plans should require a second service, a container, or a cloud database. SQLite is a file next to the binary.
+**Keep the single binary.** sift is one self-contained executable with `web/` and `defaults/` embedded. Nothing in these plans should require a second service, a container, or a cloud database. SQLite is a file next to the binary. (nginx and oauth2-proxy on the VPS are deployment infrastructure in front of sift, not part of it — sift still runs fine on its own on localhost.)
 
-**The token never leaves the machine.** It lives in `data/settings.json` (git-ignored) and is already masked out of the `/api/state` response. Anything new — the dashboard, the Discord bot, logs — must keep it that way. The web dashboard becomes internet-facing in plan 8, so it gets authentication *before* it's exposed.
+**The token never leaves the machine.** It lives in `data/settings.json` (git-ignored) and is already masked out of the `/api/state` response. Anything new — the dashboard, the Discord bot, logs — must keep it that way. The web dashboard becomes internet-facing in plan 8, so it gets authentication *before* it's exposed. On the server the token comes from an env file, not the UI, and it's a fine-grained token that can only read public repos (plan 8b) — so even a leak is close to harmless.
+
+**Treat downloaded code as hostile.** sift pulls arbitrary repos. Scanning reads zips in memory and never extracts or executes anything; anything that does extract (plan 7) must reject `..`/absolute paths and symlinks, and nothing ever runs code from a scanned repo.
 
 **Package layout.** The code is currently one flat `main` package. That's fine now, but cobra (plan 5), the bot, and the web layer will make it messy. Plan 5 includes an optional, low-risk restructure into `internal/` packages + `cmd/sift`. Do it when you get there, not before.
 
@@ -52,6 +66,7 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 - **`Repo`** — one candidate. Key is `gh:owner/repo`, `wp:slug`, or `jk:id`. Holds `Enriched`, `Contacts`, `Scan`, `Score`, `Filter`, plus `Status` (`new`→`shortlist`→`digging`→`reported`→`skipped`) and `Notes`.
 - **`Enrichment`** — metadata: push date, releases/tags, PVR flag, advisory count, maintainer-reply recency, topics, license.
 - **`ScanResult`** — `SurfaceHits` / `SinkHits` / `AuthHits`, `WeightedSinks`, `ByClass`, and the `Hits` themselves (`Path`, `Line`, `Kind`, `Label`, `Class`, `Weight`, `Snippet`).
-- **`Score`** — `Total` (0–100), `Parts` (sinks, surface, auth, history, responsiveness, freshness, contact), `Partial` (true when the code wasn't scanned).
+- **`Score`** — `Total` (0–100), `Parts` (sinks, surface, auth, history, responsiveness, freshness, contact, cve_path), `Partial` (true when the code wasn't scanned).
+- **`Repo.CVEPath`** — how a finding would become a CVE: `github-pvr`, `github-advisory`, `security-policy`, `wordpress-cna`, `jenkins-cna`, `mitre`, `none`. Scored when `score_cve_path` is on (default).
 
 These persist today as `data/state.json`; plan 1 moves them into SQLite.

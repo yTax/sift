@@ -52,7 +52,7 @@ Big repos win just by being big — more lines, more raw hits. A density option 
 A bug in a package lots of other projects depend on is worth more — bigger blast radius, and it's your route toward a maintainer-role reputation. This also helps separate "popular on GitHub" (stars) from "actually depended upon" (real usage).
 
 ### How
-Use the **deps.dev HTTP API** (`https://api.deps.dev/v3/...`), no key needed. For a repo you can map to a package (npm name from `package.json`, PyPI from `pyproject`/`setup.py`, Maven coords for Jenkins/Java, Go module path), query its dependent count and/or download signal. Store on `Enrichment`:
+Use the **deps.dev HTTP API**, no key needed. Package/version/project lookups are on the stable `https://api.deps.dev/v3/...`, but **dependent counts are only on `v3alpha`** (`GET /v3alpha/systems/{system}/packages/{name}/versions/{version}:dependents`). Alpha endpoints can change shape, so decode defensively and treat a failure as "no impact data", never as an error. For a repo you can map to a package (npm name from `package.json`, PyPI from `pyproject`/`setup.py`, Maven coords for Jenkins/Java, Go module path), query its dependent count and/or download signal. Store on `Enrichment`:
 ```go
 Ecosystem    string
 PackageName  string
@@ -66,3 +66,29 @@ Mapping a repo → package is the fiddly bit: cheapest is to read the manifest y
 ### Done when
 - A repo that maps to a widely-depended-on package scores higher, all else equal.
 - No package mapping → `impact` part simply absent, score still computed, marked nothing-special. Covered by a test with a mocked deps.dev response (reuse the mock pattern from plan 2).
+
+---
+
+## 3d. CVE route (`cve_path`) — done
+
+### Why
+The goal is a CVE, and whether a finding *becomes* one depends on who's on the other end. With a CNA on the path the CVE comes with the fix; without one you're filing the MITRE form yourself and waiting weeks. The `contact` part only hinted at this.
+
+### What's in
+`cvePath` in `score.go` labels every repo and gives it a 0–10 value:
+
+| `cve_path` | Value | Route |
+|---|---|---|
+| `github-pvr` | 10 | Private vulnerability reporting on → maintainer publishes a GHSA → GitHub (a CNA) assigns the CVE |
+| `wordpress-cna` | 10 | Wordfence / Patchstack / WPScan are CNAs |
+| `jenkins-cna` | 10 | The Jenkins project is its own CNA |
+| `github-advisory` | 8 | No PVR, but they've published GHSAs before, so they know the flow |
+| `security-policy` | 6 | Has a SECURITY.md; they can still open a GHSA once you reach them |
+| `mitre` | 3 | Only a plain contact (email, Discord, …); expect to request the CVE from MITRE yourself |
+| `none` | 0 | No way to reach anyone privately |
+
+It's stored on `Repo.CVEPath`, shown in `/api/repos` and the CSV export, and scored as the `cve_path` part (default weight 2) when the `score_cve_path` setting is on — which it is by default. Turn it off to rank purely on code and maintainer signals.
+
+### Later
+- Show it as a badge on the repo card (plan 8) and in Discord alerts (plan 6).
+- Repos owned by orgs that are their own CNA (big vendors) could get their own label; check the CVE.org partner list if it ever matters.

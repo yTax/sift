@@ -49,6 +49,8 @@ A long-running bot (its own `sift bot` command, or inside `serve`) with slash co
 - `/run <scene>` — kick off a run (guard this: only allow configured user IDs; it spends API budget).
 Reuse the same embed formatter as 6a. Keep the bot read-mostly; gate anything that triggers work or reveals contacts behind an allow-list of Discord user IDs in settings.
 
+**Where it talks and where its secrets live.** Alerts and bot replies carry leads on unreported bugs and maintainer contacts, so post only to a private server you own (or DMs), never a shared one, and make bot replies ephemeral where Discord allows. A webhook URL is a write credential and the bot token is a full credential: on the VPS both come from `/etc/sift/sift.env` (plan 8b), not `settings.json`, and neither is ever returned by the API or logged. Check the allow-list against the interaction's user ID on the server side, not by hiding commands.
+
 ### Done when
 - `/top mcp 10` returns the ranked list in Discord.
 - `/run` is restricted to allow-listed users and reports when the run finishes.

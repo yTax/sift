@@ -20,6 +20,12 @@ internal/sift/            # everything that's in package main today
 
 Mechanical change — move files, rename `package main` → `package sift`, export the few symbols `cmd/` needs (`NewApp`, `App.StartRun`, `App.Routes`, …). Do it as its own commit before adding commands so the diff is reviewable. If you'd rather not, cobra works in a flat package too; it's just tidier this way.
 
+**Watch the `go:embed` directives.** `main.go` embeds `web` and `defaults`, and an embed pattern can only name files in the package's own directory or below — no `../`. Moving the code into `internal/sift/` breaks both unless you do one of:
+- move `web/` and `defaults/` into `internal/sift/` too (simplest; update the `defaults/` paths in `defaultsDir` in the tests), or
+- keep them at the root and add a tiny root package (`package assets` in `assets.go` next to them) that does the embedding and exports `WebFS`/`DefaultsFS`; `internal/sift` imports it.
+
+Also: `restoreDefaults` walks `defaultsFS` under the `"defaults"` prefix and `main` does `fs.Sub(webFS, "web")` — keep those prefixes or update both. Add a test that `restoreDefaults` writes at least one dork and one sink file into a temp dir so a broken embed fails CI instead of shipping an empty binary.
+
 ## Commands
 
 ```
