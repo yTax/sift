@@ -25,6 +25,8 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 7 | [`07-semgrep.md`](docs/plans/07-semgrep.md) | Optional taint pass on the top N — confirms input actually reaches a sink | 3 |
 | 8 | [`08-web-dashboard.md`](docs/plans/08-web-dashboard.md) | The dashboard, and hosting it on Oracle behind auth | 1, 3, 4 |
 | 9 | [`09-release.md`](docs/plans/09-release.md) | goreleaser + GitHub Actions for Windows/Linux/ARM builds | — |
+| 10 | [`10-fresh-surface.md`](docs/plans/10-fresh-surface.md) | Make "a sink appeared recently" a sortable/filterable signal — fresh code has the least competition | 1, 6 |
+| 11 | [`11-bounty-scope.md`](docs/plans/11-bounty-scope.md) | Tag candidates that are likely in a paying program so you can pick "fast CVE" vs "paid" per session | 1 |
 
 ## Conventions (read before building anything)
 
