@@ -23,6 +23,9 @@ const userAgent = "sift/" + version + " (repo triage tool)"
 // HTTP wraps a client with GitHub-aware rate limit handling. It is also used for WordPress/Jenkins.
 type HTTP struct {
 	client *http.Client
+	// dl fetches archives. It has no overall timeout, since a big zip on a slow, shared line
+	// can take minutes; downloadTimeout bounds it instead, and a slow first byte still fails fast.
+	dl *http.Client
 	token  string
 	log    func(string, ...any)
 
@@ -31,8 +34,11 @@ type HTTP struct {
 }
 
 func newHTTP(token string, logf func(string, ...any)) *HTTP {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = 60 * time.Second
 	return &HTTP{
 		client: &http.Client{Timeout: 90 * time.Second},
+		dl:     &http.Client{Transport: tr},
 		token:  token,
 		log:    logf,
 		waitTo: map[string]time.Time{},
@@ -70,6 +76,10 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // Do sends a request, waiting out rate limits and retrying transient failures.
 // body may be nil; it is re-sent on retries.
 func (h *HTTP) Do(ctx context.Context, method, rawURL string, body []byte, accept string) (*http.Response, error) {
+	return h.do(ctx, h.client, method, rawURL, body, accept)
+}
+
+func (h *HTTP) do(ctx context.Context, client *http.Client, method, rawURL string, body []byte, accept string) (*http.Response, error) {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
@@ -112,7 +122,7 @@ func (h *HTTP) Do(ctx context.Context, method, rawURL string, body []byte, accep
 		if body != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		resp, err := h.client.Do(req)
+		resp, err := client.Do(req)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -608,8 +618,12 @@ func toKnownAdvisories(in []ghAdvisory) []KnownAdvisory {
 }
 
 // DownloadToTemp streams url into a temp file, aborting past maxBytes.
+const downloadTimeout = 15 * time.Minute
+
 func (h *HTTP) DownloadToTemp(ctx context.Context, rawURL, dir string, maxBytes int64) (string, int64, error) {
-	resp, err := h.Do(ctx, "GET", rawURL, nil, "")
+	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
+	defer cancel()
+	resp, err := h.do(ctx, h.dl, "GET", rawURL, nil, "")
 	if err != nil {
 		return "", 0, err
 	}
