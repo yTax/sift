@@ -97,6 +97,10 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 		"sinks": w.Sinks, "surface": w.Surface, "auth": w.Auth, "history": w.History,
 		"responsiveness": w.Responsiveness, "freshness": w.Freshness, "contact": w.Contact,
 	}
+	if s.ScoreCVEPath {
+		_, parts["cve_path"] = cvePath(r)
+		weights["cve_path"] = w.CVEPath
+	}
 	var sum, wsum float64
 	for k, wt := range weights {
 		if wt <= 0 {
@@ -111,6 +115,37 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 	}
 	_, scanned := parts["sinks"]
 	return &Score{Total: math.Round(total*10) / 10, Parts: parts, Partial: !scanned, At: time.Now()}
+}
+
+// cvePath says how a bug found in r would most likely end up as a CVE, and how good that route is (0–10).
+// A CNA on the path (GitHub via a repo security advisory, Wordfence/Patchstack/WPScan for WordPress,
+// the Jenkins project for its plugins) assigns the CVE as part of the fix. Without one you're filing
+// the MITRE form yourself and waiting.
+func cvePath(r *Repo) (string, float64) {
+	switch r.Source {
+	case "wordpress":
+		return "wordpress-cna", 10
+	case "jenkins":
+		return "jenkins-cna", 10
+	}
+	e := r.Enriched
+	if e == nil {
+		return "", 0
+	}
+	switch {
+	case e.PVR != nil && *e.PVR:
+		return "github-pvr", 10 // report privately, maintainer publishes a GHSA, GitHub assigns the CVE
+	case e.Advisories > 0:
+		return "github-advisory", 8 // no PVR, but they've published GHSAs before and know the flow
+	case e.HasSecurityPolicy:
+		return "security-policy", 6
+	}
+	for _, c := range r.Contacts {
+		if c.Kind != "profile" && c.Kind != "website" {
+			return "mitre", 3
+		}
+	}
+	return "none", 0
 }
 
 // applyFilters decides whether a repo stays on the list, with a reason for every drop.

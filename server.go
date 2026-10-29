@@ -169,6 +169,7 @@ type repoSummary struct {
 	LastReply    *time.Time     `json:"last_reply,omitempty"`
 	Advisories   int            `json:"advisories"`
 	ContactKinds []string       `json:"contact_kinds"`
+	CVEPath      string         `json:"cve_path,omitempty"`
 	Scanned      bool           `json:"scanned"`
 	ScanError    string         `json:"scan_error,omitempty"`
 	Sinks        int            `json:"sinks"`
@@ -183,6 +184,7 @@ func summarize(r *Repo) repoSummary {
 		Key: r.Key, Source: r.Source, Name: r.Name, URL: r.URL, Owner: r.Owner, Description: r.Description,
 		Language: r.Language, Popularity: r.Popularity, PopLabel: r.PopLabel, Categories: r.Categories,
 		Status: r.Status, HasNotes: r.Notes != "", Score: r.Score, Filter: r.Filter, FirstSeen: r.FirstSeen,
+		CVEPath: r.CVEPath,
 	}
 	if e := r.Enriched; e != nil {
 		if !e.PushedAt.IsZero() {
@@ -638,7 +640,7 @@ func (a *App) hExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="sift-%s-%s.csv"`, scope, stamp))
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"score", "name", "source", "url", "categories", "status", "language", "popularity", "last_push", "maintainer_last_reply", "advisories", "contacts", "sink_hits", "surface_hits", "auth_hits", "top_classes", "filtered_out_because", "notes"})
+	_ = cw.Write([]string{"score", "name", "source", "url", "categories", "status", "language", "popularity", "last_push", "maintainer_last_reply", "advisories", "contacts", "cve_path", "sink_hits", "surface_hits", "auth_hits", "top_classes", "filtered_out_because", "notes"})
 	for _, rp := range list {
 		sm := summarize(rp)
 		score := ""
@@ -665,7 +667,7 @@ func (a *App) hExport(w http.ResponseWriter, r *http.Request) {
 		_ = cw.Write([]string{
 			score, rp.Name, rp.Source, rp.URL, strings.Join(rp.Categories, " "), rp.Status, rp.Language,
 			strconv.Itoa(rp.Popularity), ts(sm.PushedAt), ts(sm.LastReply), strconv.Itoa(sm.Advisories),
-			strings.Join(contacts, "; "), strconv.Itoa(sm.Sinks), strconv.Itoa(sm.Surface), strconv.Itoa(sm.Auth),
+			strings.Join(contacts, "; "), rp.CVEPath, strconv.Itoa(sm.Sinks), strconv.Itoa(sm.Surface), strconv.Itoa(sm.Auth),
 			strings.Join(classes, " "), strings.Join(rp.Filter.Reasons, "; "), rp.Notes,
 		})
 	}

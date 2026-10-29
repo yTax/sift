@@ -102,6 +102,7 @@ type Repo struct {
 	Scan     *ScanResult  `json:"scan,omitempty"`
 	Score    *Score       `json:"score,omitempty"`
 	Filter   FilterResult `json:"filter"`
+	CVEPath  string       `json:"cve_path,omitempty"` // see cvePath: github-pvr | wordpress-cna | jenkins-cna | mitre | …
 
 	Status    string    `json:"status"` // new | shortlist | digging | reported | skipped
 	Notes     string    `json:"notes,omitempty"`

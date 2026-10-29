@@ -17,6 +17,7 @@ type Weights struct {
 	Responsiveness float64 `json:"responsiveness"`
 	Freshness      float64 `json:"freshness"`
 	Contact        float64 `json:"contact"`
+	CVEPath        float64 `json:"cve_path"`
 }
 
 // CategoryOverride holds UI toggles that override what the dork file says.
@@ -59,7 +60,8 @@ type Settings struct {
 	SkipTests     bool `json:"skip_tests"`
 	Concurrency   int  `json:"concurrency"`
 
-	Weights Weights `json:"weights"`
+	Weights      Weights `json:"weights"`
+	ScoreCVEPath bool    `json:"score_cve_path"` // score how a finding would become a CVE (CNA on the path or not)
 
 	Overrides       map[string]CategoryOverride `json:"overrides"`
 	DisabledQueries map[string]bool             `json:"disabled_queries"` // "category/query"
@@ -86,8 +88,9 @@ func defaultSettings() Settings {
 		SkipTests:                 true,
 		Concurrency:               4,
 		Weights: Weights{
-			Sinks: 3, Surface: 2, Auth: 2, History: 1.5, Responsiveness: 1.5, Freshness: 1, Contact: 1,
+			Sinks: 3, Surface: 2, Auth: 2, History: 1.5, Responsiveness: 1.5, Freshness: 1, Contact: 1, CVEPath: 2,
 		},
+		ScoreCVEPath:    true,
 		Overrides:       map[string]CategoryOverride{},
 		DisabledQueries: map[string]bool{},
 	}

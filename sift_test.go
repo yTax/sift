@@ -304,6 +304,55 @@ func TestScanZip(t *testing.T) {
 	}
 }
 
+func TestCVEPath(t *testing.T) {
+	yes, no := true, false
+	cases := []struct {
+		name string
+		r    *Repo
+		want string
+	}{
+		{"pvr on", &Repo{Source: "github", Enriched: &Enrichment{PVR: &yes}}, "github-pvr"},
+		{"past ghsas", &Repo{Source: "github", Enriched: &Enrichment{PVR: &no, Advisories: 2}}, "github-advisory"},
+		{"security.md only", &Repo{Source: "github", Enriched: &Enrichment{HasSecurityPolicy: true}}, "security-policy"},
+		{"email only", &Repo{Source: "github", Enriched: &Enrichment{}, Contacts: []Contact{{Kind: "email"}}}, "mitre"},
+		{"website only", &Repo{Source: "github", Enriched: &Enrichment{}, Contacts: []Contact{{Kind: "website"}}}, "none"},
+		{"wordpress", &Repo{Source: "wordpress"}, "wordpress-cna"},
+		{"jenkins", &Repo{Source: "jenkins"}, "jenkins-cna"},
+		{"not enriched", &Repo{Source: "github"}, ""},
+	}
+	for _, c := range cases {
+		if got, _ := cvePath(c.r); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestCVEPathToggle(t *testing.T) {
+	now := time.Now()
+	yes, no := true, false
+	scan := &ScanResult{WeightedSinks: 12, SurfaceHits: 15, AuthHits: 6}
+	// same code and metadata; only how a finding would become a CVE differs
+	withCNA := &Repo{Source: "github", Scan: scan, Enriched: &Enrichment{PushedAt: now, PVR: &yes}}
+	without := &Repo{Source: "github", Scan: scan, Enriched: &Enrichment{PushedAt: now, PVR: &no}}
+
+	s := defaultSettings()
+	if !s.ScoreCVEPath {
+		t.Fatal("cve_path scoring should be on by default")
+	}
+	a, b := computeScore(withCNA, s, false), computeScore(without, s, false)
+	if _, ok := a.Parts["cve_path"]; !ok {
+		t.Fatal("cve_path part missing with the toggle on")
+	}
+	if a.Total <= b.Total {
+		t.Errorf("repo with a CNA route (%.1f) should outrank one without (%.1f)", a.Total, b.Total)
+	}
+
+	s.ScoreCVEPath = false
+	if _, ok := computeScore(withCNA, s, false).Parts["cve_path"]; ok {
+		t.Error("cve_path part present with the toggle off")
+	}
+}
+
 func TestRunIDsStayUniquePastCap(t *testing.T) {
 	st, err := openStore(filepath.Join(t.TempDir(), "state.json"))
 	if err != nil {

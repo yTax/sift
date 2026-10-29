@@ -234,6 +234,7 @@ func (a *App) Rescore() {
 			f := flagsForRepo(r, catMap, s, profiles)
 			r.Filter = applyFilters(r, s, f.require)
 			r.Score = computeScore(r, s, f.handledByProgram)
+			r.CVEPath, _ = cvePath(r)
 		}
 	})
 }
