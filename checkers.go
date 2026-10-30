@@ -680,7 +680,10 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 						}
 					}
 				}
-				if guardAt >= 0 && guardAt <= i {
+				// a guard before the sink protects it; when the line is the bug itself (a prefix
+				// check), a fix may as well follow it: `if real != home and not
+				// real.startswith(home + os.sep)` on the next line
+				if guardAt >= 0 && (guardAt <= i || l.NoInput) {
 					continue
 				}
 				k := key{c.ID, i}

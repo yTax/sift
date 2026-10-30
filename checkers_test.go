@@ -84,6 +84,16 @@ def is_safe(p):
     full = os.path.abspath(p)
     return full.startswith(base_dir)
 `, true},
+	{"prefix-containment", "python separator check on the next line", "routes.py", `
+def contained_path(raw):
+    home = str(dataset_home())
+    real = os.path.normpath(os.path.realpath(raw))
+    if not real.startswith(home):
+        raise HTTPException(400)
+    if real != home and not real.startswith(home + os.sep):
+        raise HTTPException(400)
+    return Path(real)
+`, false},
 	{"prefix-containment", "url prefix is not a path check", "net.ts", `
 function isInternal(url: string) {
   return url.startsWith(baseUrl);
