@@ -18,7 +18,7 @@ import (
 //go:embed web
 var webFS embed.FS
 
-//go:embed defaults
+//go:embed all:defaults
 var defaultsFS embed.FS
 
 const version = "0.1.0"

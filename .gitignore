@@ -3,6 +3,8 @@
 .env
 /dorks/
 /sinks/
+/checkers/
+/semgrep/
 # build output
 /sift
 /sift.exe

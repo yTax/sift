@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -125,27 +126,17 @@ func slugID(s string) string {
 	return strings.Trim(s, "-")
 }
 
-// loadCategories reads every *.yaml / *.yml in dir. Files starting with "_" are templates and skipped.
+// loadCategories reads the bundled dork files overlaid by the ones in dir (see overlay).
 func loadCategories(dir string) ([]*Category, []LoadError) {
+	return parseCategories(overlay(dir, "dorks"))
+}
+
+func parseCategories(files []libFile) ([]*Category, []LoadError) {
 	var cats []*Category
 	var errs []LoadError
 	seen := map[string]string{}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, []LoadError{{File: dir, Error: err.Error()}}
-	}
-	for _, e := range entries {
-		name := e.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if e.IsDir() || (ext != ".yaml" && ext != ".yml") || strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
-			continue
-		}
-		path := filepath.Join(dir, name)
-		b, err := os.ReadFile(path)
-		if err != nil {
-			errs = append(errs, LoadError{name, err.Error()})
-			continue
-		}
+	for _, f := range files {
+		name, b := f.Name, f.Data
 		var c Category
 		if err := yaml.Unmarshal(b, &c); err != nil {
 			errs = append(errs, LoadError{name, err.Error()})
@@ -258,24 +249,16 @@ type SinkProfile struct {
 	File       string    `yaml:"-" json:"file"`
 }
 
+// loadSinkProfiles reads the bundled sink profiles overlaid by the ones in dir (see overlay).
 func loadSinkProfiles(dir string) ([]*SinkProfile, []LoadError) {
+	return parseSinkProfiles(overlay(dir, "sinks"))
+}
+
+func parseSinkProfiles(files []libFile) ([]*SinkProfile, []LoadError) {
 	var out []*SinkProfile
 	var errs []LoadError
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, []LoadError{{File: dir, Error: err.Error()}}
-	}
-	for _, e := range entries {
-		name := e.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if e.IsDir() || (ext != ".yaml" && ext != ".yml") || strings.HasPrefix(name, "_") || strings.HasPrefix(name, ".") {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			errs = append(errs, LoadError{name, err.Error()})
-			continue
-		}
+	for _, f := range files {
+		name, b := f.Name, f.Data
 		var p SinkProfile
 		if err := yaml.Unmarshal(b, &p); err != nil {
 			errs = append(errs, LoadError{name, err.Error()})
@@ -329,13 +312,18 @@ func loadSinkProfiles(dir string) ([]*SinkProfile, []LoadError) {
 
 // ---------- default files ----------
 
-// restoreDefaults writes bundled dork/sink files that don't exist yet. Never overwrites.
+// restoreDefaults writes the bundled templates (_template.yaml: commented examples for writing
+// files by hand) that don't exist yet. Never overwrites. The bundled files themselves are read
+// straight from the binary (overlay), so they stay current when sift is updated.
 func restoreDefaults(base string) (written []string, err error) {
 	err = fs.WalkDir(defaultsFS, "defaults", func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
 		rel := strings.TrimPrefix(p, "defaults/")
+		if !strings.HasPrefix(path.Base(p), "_") {
+			return nil
+		}
 		dst := filepath.Join(base, filepath.FromSlash(rel))
 		if _, err := os.Stat(dst); err == nil {
 			return nil

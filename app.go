@@ -99,17 +99,15 @@ func NewApp(base string) (*App, error) {
 		tmpDir:   filepath.Join(base, "data", "tmp"),
 		hub:      newHub(),
 	}
-	for _, d := range []string{a.dorksDir, a.sinksDir, a.dataDir} {
+	for _, d := range []string{filepath.Join(base, "checkers"), filepath.Join(base, "semgrep"), a.dorksDir, a.sinksDir, a.dataDir} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return nil, err
 		}
 	}
-	// first start: drop in the bundled dork + sink files
-	if entries, _ := os.ReadDir(a.dorksDir); len(entries) == 0 {
-		if w, err := restoreDefaults(base); err == nil && len(w) > 0 {
-			log.Printf("wrote %d default dork/sink files", len(w))
-		}
+	if n := pruneDefaultCopies(base); n > 0 {
+		log.Printf("removed %d copies of bundled files: they're read from sift itself now", n)
 	}
+	_, _ = restoreDefaults(base) // the commented templates, for writing files by hand
 	os.RemoveAll(a.tmpDir) // leftovers from a crash
 	var err error
 	if a.settings, err = loadSettings(filepath.Join(a.dataDir, "settings.json")); err != nil {
@@ -222,8 +220,8 @@ func flagsForRepo(r *Repo, cats map[string]*Category, s Settings, profiles []*Si
 }
 
 func (a *App) loadAll() (map[string]*Category, []*Category, []*SinkProfile) {
-	cats, _ := loadCategories(a.dorksDir)
-	profiles, _ := loadSinkProfiles(a.sinksDir)
+	cats, _ := a.categories()
+	profiles, _ := a.sinkProfiles()
 	m := map[string]*Category{}
 	for _, c := range cats {
 		m[c.ID] = c
@@ -267,8 +265,8 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	token, tokenSrc := s.TokenAndSource()
 	h := newHTTP(token, a.logf)
 
-	allCats, catErrs := loadCategories(a.dorksDir)
-	profiles, profErrs := loadSinkProfiles(a.sinksDir)
+	allCats, catErrs := a.categories()
+	profiles, profErrs := a.sinkProfiles()
 	for _, e := range append(catErrs, profErrs...) {
 		a.warnf("skipping %s: %s", e.File, e.Error)
 	}
@@ -868,7 +866,7 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 	}
 	a.logf("scan: downloading and grepping %d repos (%d at a time)", len(targets), max(1, s.Concurrency))
 	maxBytes := int64(s.MaxRepoSizeMB) << 20
-	checkers, chErrs := loadCheckers(filepath.Join(a.base, "checkers"))
+	checkers, chErrs := a.checkers()
 	for _, e := range chErrs {
 		a.warnf("checker %s: %s", e.File, e.Error)
 	}

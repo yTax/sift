@@ -73,6 +73,7 @@ type Settings struct {
 
 	Overrides       map[string]CategoryOverride `json:"overrides"`
 	DisabledQueries map[string]bool             `json:"disabled_queries"` // "category/query"
+	DisabledFiles   map[string]bool             `json:"disabled_files"`   // "checkers/x.yaml": library files switched off
 }
 
 func defaultSettings() Settings {
@@ -103,6 +104,7 @@ func defaultSettings() Settings {
 		SemgrepTopN:     30,
 		Overrides:       map[string]CategoryOverride{},
 		DisabledQueries: map[string]bool{},
+		DisabledFiles:   map[string]bool{},
 	}
 }
 
@@ -128,6 +130,9 @@ func loadSettings(path string) (*SettingsStore, error) {
 	if st.s.DisabledQueries == nil {
 		st.s.DisabledQueries = map[string]bool{}
 	}
+	if st.s.DisabledFiles == nil {
+		st.s.DisabledFiles = map[string]bool{}
+	}
 	return st, st.saveLocked()
 }
 
@@ -143,6 +148,10 @@ func (st *SettingsStore) Get() Settings {
 	s.DisabledQueries = make(map[string]bool, len(st.s.DisabledQueries))
 	for k, v := range st.s.DisabledQueries {
 		s.DisabledQueries[k] = v
+	}
+	s.DisabledFiles = make(map[string]bool, len(st.s.DisabledFiles))
+	for k, v := range st.s.DisabledFiles {
+		s.DisabledFiles[k] = v
 	}
 	return s
 }

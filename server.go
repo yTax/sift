@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -39,6 +38,12 @@ func (a *App) Routes(static fs.FS, extraHosts ...string) http.Handler {
 	mux.HandleFunc("POST /api/variant", a.hVariant)
 	mux.HandleFunc("POST /api/rescore", a.hRescore)
 	mux.HandleFunc("POST /api/defaults", a.hDefaults)
+	mux.HandleFunc("GET /api/library", a.hLibrary)
+	mux.HandleFunc("POST /api/library/save", a.hLibrarySave)
+	mux.HandleFunc("POST /api/library/remove", a.hLibraryRemove)
+	mux.HandleFunc("POST /api/library/toggle", a.hLibraryToggle)
+	mux.HandleFunc("POST /api/library/convert", a.hLibraryConvert)
+	mux.HandleFunc("POST /api/library/test", a.hLibraryTest)
 	mux.HandleFunc("GET /api/events", a.hEvents)
 	mux.HandleFunc("GET /api/export", a.hExport)
 	return guard(mux, extraHosts)
@@ -104,8 +109,8 @@ type catView struct {
 
 func (a *App) hState(w http.ResponseWriter, r *http.Request) {
 	s := a.settings.Get()
-	cats, catErrs := loadCategories(a.dorksDir)
-	profiles, profErrs := loadSinkProfiles(a.sinksDir)
+	cats, catErrs := a.categories()
+	profiles, profErrs := a.sinkProfiles()
 	counts := map[string][2]int{}
 	totals := map[string]int{}
 	a.store.Read(func(repos map[string]*Repo) {
@@ -404,6 +409,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	delete(raw, "overrides")
 	delete(raw, "disabled_queries")
+	delete(raw, "disabled_files")
 	var err error
 	_ = a.settings.Update(func(s *Settings) {
 		cur, _ := json.Marshal(s)
@@ -417,7 +423,7 @@ func (a *App) hSettings(w http.ResponseWriter, r *http.Request) {
 		if err = json.Unmarshal(b, &next); err != nil {
 			return
 		}
-		next.Overrides, next.DisabledQueries = s.Overrides, s.DisabledQueries
+		next.Overrides, next.DisabledQueries, next.DisabledFiles = s.Overrides, s.DisabledQueries, s.DisabledFiles
 		if tokenUpdate != nil {
 			next.Token = strings.TrimSpace(*tokenUpdate)
 		}
@@ -501,7 +507,7 @@ func (a *App) hQueryTest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
-	cats, _ := loadCategories(a.dorksDir)
+	cats, _ := a.categories()
 	var c *Category
 	var q *Query
 	for _, cc := range cats {
@@ -518,20 +524,29 @@ func (a *App) hQueryTest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "query not found — did the file change? Reload the page.")
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	out, err := a.testQuery(ctx, c, *q)
+	if err != nil {
+		writeErr(w, 502, err.Error())
+		return
+	}
+	writeJSON(w, out)
+}
+
+// testQuery runs one query's first page and returns the hit count and a few sample names.
+func (a *App) testQuery(ctx context.Context, c *Category, q Query) (map[string]any, error) {
 	s := a.settings.Get()
 	token, _ := s.TokenAndSource()
 	h := newHTTP(token, func(string, ...any) {})
-	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
-	defer cancel()
 	out := map[string]any{}
 	var sample []string
 	switch c.Source {
 	case "github":
-		full := c.FullQuery(*q, s)
+		full := c.FullQuery(q, s)
 		res, err := h.searchPage(ctx, full, s.SearchSort, 1)
 		if err != nil {
-			writeErr(w, 502, err.Error())
-			return
+			return nil, err
 		}
 		for i, it := range res.Items {
 			if i >= 8 {
@@ -549,12 +564,11 @@ func (a *App) hQueryTest(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "wordpress":
-		qq := *q
+		qq := q
 		qq.Pages = 1
 		res, total, err := h.WPSearch(ctx, c, qq, s)
 		if err != nil {
-			writeErr(w, 502, err.Error())
-			return
+			return nil, err
 		}
 		for i, p := range res {
 			if i >= 8 {
@@ -565,10 +579,9 @@ func (a *App) hQueryTest(w http.ResponseWriter, r *http.Request) {
 		out["total"] = total
 		out["note"] = fmt.Sprintf("%d of the first 100 pass the install/update limits.", len(res))
 	case "jenkins":
-		res, total, err := h.JenkinsSearch(ctx, c, *q)
+		res, total, err := h.JenkinsSearch(ctx, c, q)
 		if err != nil {
-			writeErr(w, 502, err.Error())
-			return
+			return nil, err
 		}
 		sort.Slice(res, func(i, j int) bool { return res[i].P.Popularity > res[j].P.Popularity })
 		for i, p := range res {
@@ -580,8 +593,11 @@ func (a *App) hQueryTest(w http.ResponseWriter, r *http.Request) {
 		out["total"] = len(res)
 		out["note"] = fmt.Sprintf("%d match out of %d plugins.", len(res), total)
 	}
+	if sample == nil {
+		sample = []string{}
+	}
 	out["sample"] = sample
-	writeJSON(w, out)
+	return out, nil
 }
 
 // ---------- runs ----------
@@ -615,7 +631,7 @@ func (a *App) hVariant(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
 	defer cancel()
-	checkers, _ := loadCheckers(filepath.Join(a.base, "checkers"))
+	checkers, _ := a.checkers()
 	plan, err := PlanVariant(ctx, newHTTP(token, func(string, ...any) {}), req.Ref, checkers)
 	if err != nil {
 		writeErr(w, 422, err.Error())

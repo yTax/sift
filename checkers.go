@@ -2,8 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -73,8 +71,13 @@ const (
 	maxFindingsPerFile = 8
 )
 
-// loadCheckers reads the bundled checkers, then any *.yaml in extraDir (same id replaces a bundled one).
-func loadCheckers(extraDir string) ([]*Checker, []LoadError) {
+// loadCheckers reads the bundled checkers overlaid by the ones in dir (see overlay). A file
+// whose id matches a bundled checker's replaces it too.
+func loadCheckers(dir string) ([]*Checker, []LoadError) {
+	return parseCheckers(overlay(dir, "checkers"))
+}
+
+func parseCheckers(files []libFile) ([]*Checker, []LoadError) {
 	byID := map[string]*Checker{}
 	var errs []LoadError
 	add := func(name string, b []byte) {
@@ -109,25 +112,8 @@ func loadCheckers(extraDir string) ([]*Checker, []LoadError) {
 		}
 		byID[c.ID] = &c
 	}
-	_ = fs.WalkDir(defaultsFS, "defaults/checkers", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !isYAML(p) {
-			return nil
-		}
-		b, err := defaultsFS.ReadFile(p)
-		if err == nil {
-			add(path.Base(p), b)
-		}
-		return nil
-	})
-	if entries, err := os.ReadDir(extraDir); err == nil {
-		for _, e := range entries {
-			if e.IsDir() || !isYAML(e.Name()) {
-				continue
-			}
-			if b, err := os.ReadFile(filepath.Join(extraDir, e.Name())); err == nil {
-				add(e.Name(), b)
-			}
-		}
+	for _, f := range files {
+		add(f.Name, f.Data)
 	}
 	out := make([]*Checker, 0, len(byID))
 	for _, c := range byID {

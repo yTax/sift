@@ -104,7 +104,7 @@ func TestSemgrepConfirmsCheckerFindings(t *testing.T) {
 		cases = append(cases, want{name, c.checker})
 	}
 	rulesDir := t.TempDir()
-	rules, err := writeSemgrepRules(rulesDir)
+	rules, err := writeSemgrepRules(rulesDir, overlay("", "semgrep"))
 	if err != nil || len(rules) == 0 {
 		t.Fatalf("rules: %v", err)
 	}

@@ -368,7 +368,7 @@ async function openDetail(key, keepScroll) {
     return;
   }
   const y = window.scrollY;
-  view.replaceChildren(
+  fillView(view, 
     h("a", { class: "back", href: "#" }, "← back to list"),
     h("div", { class: "dhead" },
       h("div", { class: "score" + (repo.score && repo.score.partial ? " partial" : "") }, fmtScore(repo.score)),
@@ -469,19 +469,30 @@ async function previewVariant() {
 // ---------- wiring ----------
 
 function route() {
-  const m = location.hash.match(/^#repo=(.+)$/);
-  const list = document.getElementById("list-view");
-  const detail = document.getElementById("detail-view");
-  if (m) {
-    list.hidden = true;
-    detail.hidden = false;
+  const hash = location.hash;
+  let m, view = "list";
+  state.detailKey = null;
+  if ((m = hash.match(/^#repo=(.+)$/))) {
+    view = "detail";
     state.detailKey = decodeURIComponent(m[1]);
     openDetail(state.detailKey);
-  } else {
-    detail.hidden = true;
-    list.hidden = false;
-    state.detailKey = null;
+  } else if ((m = hash.match(/^#lib=(\w+)\/(.+)$/))) {
+    view = "library";
+    openLibEditor(m[1], decodeURIComponent(m[2]));
+  } else if ((m = hash.match(/^#lib-new=(\w+)$/))) {
+    view = "library";
+    openLibEditor(m[1], null);
+  } else if (hash === "#library") {
+    view = "library";
+    openLibrary();
+  } else if (hash === "#settings") {
+    view = "settings";
+    openSettings();
   }
+  for (const v of ["list", "detail", "library", "settings"]) document.getElementById(v + "-view").hidden = v !== view;
+  const tab = view === "detail" ? "list" : view;
+  for (const a of document.querySelectorAll(".nav a")) a.classList.toggle("on", a.dataset.view === tab);
+  if (view !== "detail") window.scrollTo(0, 0);
 }
 
 function init() {
@@ -522,4 +533,5 @@ function init() {
   route();
 }
 
-init();
+// library.js and settings.js load after this file
+document.addEventListener("DOMContentLoaded", init);

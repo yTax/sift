@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"path"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -491,7 +490,7 @@ const variantPerQuery = 200
 // stageVariant plans (or takes) the searches, runs them and files every matching repo as a
 // candidate. It returns the candidates' keys, which become the run's working set.
 func (a *App) stageVariant(ctx context.Context, h *HTTP, opts RunOpts) (keys []string, found, newCount int) {
-	checkers, _ := loadCheckers(filepath.Join(a.base, "checkers"))
+	checkers, _ := a.checkers()
 	plan, err := PlanVariant(ctx, h, opts.Variant, checkers)
 	// your edited searches run as typed; generated ones may be narrowed
 	var queries []variantQuery

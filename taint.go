@@ -64,25 +64,17 @@ func semgrepBin(s Settings) string {
 	return ""
 }
 
-// writeSemgrepRules copies the embedded rules into dir and returns their paths.
-func writeSemgrepRules(dir string) ([]string, error) {
+// writeSemgrepRules writes the rule files into dir and returns their paths.
+func writeSemgrepRules(dir string, files []libFile) ([]string, error) {
 	var out []string
-	err := fs.WalkDir(defaultsFS, "defaults/semgrep", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !isYAML(p) {
-			return err
-		}
-		b, err := defaultsFS.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		dst := filepath.Join(dir, path.Base(p))
-		if err := os.WriteFile(dst, b, 0o600); err != nil {
-			return err
+	for _, f := range files {
+		dst := filepath.Join(dir, f.Name)
+		if err := os.WriteFile(dst, f.Data, 0o600); err != nil {
+			return out, err
 		}
 		out = append(out, dst)
-		return nil
-	})
-	return out, err
+	}
+	return out, nil
 }
 
 // extractFiles writes the named archive entries (paths after the zipball's top folder) into
@@ -157,10 +149,10 @@ func mkdirAllRoot(root *os.Root, dir string) error {
 }
 
 type semgrepResult struct {
-	Path  string
-	Line  int
-	Class string
-	Rule  string
+	Path  string `json:"path"`
+	Line  int    `json:"line"`
+	Class string `json:"class"`
+	Rule  string `json:"rule"`
 }
 
 // runSemgrep runs bin with the rule files over dir and returns its results.
@@ -305,7 +297,7 @@ func (a *App) stageTaint(ctx context.Context, h *HTTP, working []string, s Setti
 		a.warnf("semgrep: %v", err)
 		return 0
 	}
-	rules, err := writeSemgrepRules(rulesDir)
+	rules, err := writeSemgrepRules(rulesDir, a.lib("semgrep"))
 	if err != nil || len(rules) == 0 {
 		a.warnf("semgrep: no rules (%v)", err)
 		return 0

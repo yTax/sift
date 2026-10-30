@@ -7,10 +7,17 @@
 <title>sift</title>
 <link rel="stylesheet" href="style.css">
 <script src="app.js" defer></script>
+<script src="library.js" defer></script>
+<script src="settings.js" defer></script>
 </head>
 <body>
 <header class="top">
   <a class="brand" href="#">sift</a>
+  <nav class="nav">
+    <a href="#" data-view="list">Repos</a>
+    <a href="#library" data-view="library">Library</a>
+    <a href="#settings" data-view="settings">Settings</a>
+  </nav>
   <div class="runbox">
     <div class="runstate" id="runstate">idle</div>
     <div class="bar"><div id="runbar"></div></div>
@@ -83,5 +90,7 @@
 </main>
 
 <main id="detail-view" hidden></main>
+<main id="library-view" hidden></main>
+<main id="settings-view" hidden></main>
 </body>
 </html>

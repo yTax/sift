@@ -48,6 +48,10 @@ code, .mono { font-family: var(--mono); font-size: 13px; }
   background: var(--surface); border-bottom: 1px solid var(--line);
 }
 .brand { font-weight: 700; font-size: 18px; color: var(--text); letter-spacing: .02em; }
+.nav { display: flex; gap: 2px; }
+.nav a { color: var(--muted); font-size: 14px; padding: 5px 8px; border-radius: 6px; }
+.nav a:hover { text-decoration: none; color: var(--text); }
+.nav a.on { color: var(--accent); background: var(--chip); font-weight: 600; }
 .runbox { flex: 1; min-width: 0; }
 .runstate { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 4px; overflow: hidden; }
@@ -148,3 +152,35 @@ details.file summary { cursor: pointer; font-family: var(--mono); font-size: 13p
 textarea { width: 100%; min-height: 110px; resize: vertical; }
 .muted { color: var(--muted); }
 .reasons { color: var(--bad); margin: 0; padding-left: 18px; }
+
+/* library + settings */
+.libhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.libhead h2 { margin: 0; }
+.edtitle { font-size: 20px; margin: 4px 0 10px; overflow-wrap: anywhere; }
+.librow { display: flex; gap: 10px; align-items: flex-start; }
+.librow input { margin-top: 4px; flex: none; }
+.librow a { color: var(--text); min-width: 0; }
+.librow a:hover { text-decoration: none; }
+.librow a:hover .name { color: var(--accent); }
+.form h2 { margin-top: 14px; }
+.form h2:first-child { margin-top: 0; }
+.field { display: flex; flex-direction: column; gap: 3px; margin: 8px 0; font-size: 14px; min-width: 0; }
+.field > span { color: var(--muted); }
+.field input[type=text], .field input[type=number], .field input[type=password], .field select {
+  font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; width: 100%;
+}
+.field input.mono { font-family: var(--mono); font-size: 13px; }
+.row3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; align-items: end; }
+textarea.lines { min-height: 64px; }
+textarea.yaml { min-height: 420px; font-family: var(--mono); font-size: 12.5px; line-height: 1.5; tab-size: 2; white-space: pre; }
+textarea.yaml.short { min-height: 160px; }
+.qrow { border-top: 1px solid var(--line); padding: 8px 0; }
+.qout { font-size: 13px; overflow-wrap: anywhere; }
+details.lang { border-top: 1px solid var(--line); padding: 8px 0; }
+details.lang summary { cursor: pointer; font-weight: 600; }
+.actions.sticky { position: sticky; bottom: 0; background: var(--bg); padding: 10px 0; margin: 0; align-items: center; }
+@media (max-width: 700px) {
+  .top { flex-wrap: wrap; }
+  .runbox { order: 3; flex-basis: 100%; }
+}
