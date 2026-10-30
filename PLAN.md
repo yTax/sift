@@ -29,6 +29,9 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 11 | [`11-bounty-scope.md`](docs/plans/11-bounty-scope.md) | Tag candidates that are likely in a paying program so you can pick "fast CVE" vs "paid" per session | 1 |
 | 12 | [`12-checkers.md`](docs/plans/12-checkers.md) | Bug checkers per bug class (prefix containment, tool path → fs, shell from input, SSRF, route without auth…) — sift points at lines, not just repos | 3a |
 | 13 | [`13-learned-ranking.md`](docs/plans/13-learned-ranking.md) | Suggest score weights from your real/dud marks (logistic regression in plain Go, suggest-then-apply) | 8a |
+| 14 | [`14-library.md`](docs/plans/14-library.md) | Drop-in folders for dorks, checkers, sinks and Semgrep rules, with builders and live tests in the panel, plus the settings screen | 8a |
+| 15 | [`15-impact-and-reportability.md`](docs/plans/15-impact-and-reportability.md) | "Used by" (deps.dev dependents, downloads, installs) and a "CVE-ready" signal: how much a bug matters and whether it will become a CVE | 4a |
+| 16 | [`16-report-drafts.md`](docs/plans/16-report-drafts.md) | Turn a verified finding into an advisory draft (title, CWE, CVSS, permalinks, fix, where to send it) from templates | 15 |
 
 ### Build order
 
@@ -44,13 +47,17 @@ Done so far:
 - **Scan speed**: literal prefilter (`litfilter.go`), concurrency from the CPU count, `scanEngine` versioning instead of forced rescans.
 - **4b (variants), cheap tier**: GHSA or fix commit → code searches → candidates in the `variants` scene.
 - **1 (SQLite)**, pulled forward: rewriting a 35 MB `state.json` during scans was filling the disk. State lives in `data/sift.db`; a save writes only the repos that changed.
+- **Two rounds of reviewing real findings** (MCP, WordPress, Minecraft, self-hosted, Jenkins): every false-positive cluster became a fixture and a fix (strings, comments, docstrings, compared-only input, pass-through URL helpers, eval fixtures…).
+- **14 (library)**: drop-in folders, builders, live tests, settings screen.
 
 Next, in order:
-1. **Review the checker findings** from the first full run; every false positive becomes a fixture and a fix.
-2. **4c (variant feed)**: the daily advisory feed on top of 4b.
-3. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings, not just repos. Deployment details get settled with the real server config at that point.
-4. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough marks.
-6. The rest as they become useful: 2, 3b/3c, 9, 10, 11, the settings screen.
+1. **4c (variant feed)**: new advisories become variant hunts on their own (a daily tick inside sift until the CLI exists).
+2. **12 layer 3**: same-file wrappers and response types, the false-positive and missed-bug class found in the second review.
+3. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.
+4. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings. Deployment details get settled with the real server config at that point.
+5. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough real/dud marks.
+6. The rest as they become useful: 2, 3b/3c, 9, 11.
+After every real run: review the findings, and turn each false-positive cluster into fixtures and a fix.
 
 **Ruled out:** running a target app and firing payloads at it (dynamic exploit testing). sift never runs downloaded code. **Maybe later:** a free local LLM on the Oracle box for first-pass triage. No paid API.
 

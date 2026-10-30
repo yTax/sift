@@ -46,6 +46,15 @@ Semgrep CE's taint mode understands real syntax and data flow inside a function,
 
 When both layers flag the same line, mark the finding `confirmed by semgrep` and bump its confidence.
 
+### Layer 3 — same-file wrappers and response types
+
+Found by reading real results: the checker only sees one function, so it misses helpers in both directions.
+- **Escaping helpers** (false positives): `HTMLResponse(_error_page(f"...{error}"))` was flagged although `_error_page` runs `html.escape` on its argument. Build a per-file summary of each function: does it pass parameter N through a known cleaner (escape, basename, quote, int, prepare)? A call to such a helper counts as cleaning its argument.
+- **Sink wrappers** (missed bugs): `def run(cmd): subprocess.run(cmd, shell=True)` called from a handler with input. The same summary records "parameter N reaches sink X", and a call to the wrapper with input becomes a finding at the call site (one level deep, same file first, then same package by import).
+- **Response types**: Werkzeug's `Response` defaults to `text/plain`, Starlette's `Response` with no `media_type` sends no content type; neither is reflected XSS on its own. Know the defaults per framework and only flag HTML ones (`flask.Response`, `HTMLResponse`, `make_response` of a string, `mimetype="text/html"`).
+
+Each addition comes with fixtures from the run that exposed it.
+
 ## Not chosen
 
 - **tree-sitter in-process:** the best parser, but the Go bindings need cgo, which breaks the pure-Go cross-compile to Windows and the Oracle ARM box (plan 9). Semgrep gives us tree-sitter-quality parsing as an external binary instead.
