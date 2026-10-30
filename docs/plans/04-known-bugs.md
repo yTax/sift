@@ -29,6 +29,8 @@ This is **information, not a filter** — don't auto-drop repos with known bugs 
 
 ## 4b. Variant hunting from fix commits
 
+**Status:** cheap tier built (`variants.go`, "Hunt variants" in the run panel, `POST /api/variant` for the preview). Input is a GHSA id, fix commit/PR URL or `owner/repo@sha`. It reads the removed lines (or, for fixes that only add a check, the unchanged sink lines around them), builds up to three code searches from identifiers the fixed code no longer has, adds a word when a search matches over 1,000 files, and files the matching repos under the `variants` scene tagged `variant-of:<ref>`. The search can be edited before the hunt. Found in testing: most hits are vendored copies in abandoned repos, which the normal filters drop. Not built: the Semgrep tier and searching repos already in the DB.
+
 ### Why
 This is the technique real researchers use: take a *known* fixed bug, look at exactly what the patch changed, then find other projects that still have the pre-fix pattern. You're not hunting blind — you're copying a proven bug across a scene. Developers make the same mistake in sibling projects constantly.
 

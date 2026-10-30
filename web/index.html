@@ -29,6 +29,20 @@
     <button id="runstart" class="btn primary">Start</button>
     <button id="runcancel" class="btn">Cancel run</button>
   </div>
+  <details class="variant">
+    <summary>Hunt variants of a fixed bug</summary>
+    <div class="runform">
+      <input id="v-ref" type="search" placeholder="GHSA id, fix commit or pull request URL" autocomplete="off">
+      <button id="v-preview" class="btn">Preview</button>
+    </div>
+    <div id="v-plan" hidden>
+      <p id="v-summary" class="muted"></p>
+      <div id="v-lines"></div>
+      <label class="muted" for="v-queries">GitHub code searches, one per line (edit freely)</label>
+      <textarea id="v-queries" spellcheck="false"></textarea>
+      <button id="v-hunt" class="btn primary">Hunt: search, enrich, scan</button>
+    </div>
+  </details>
   <ol id="log" class="log"></ol>
 </section>
 

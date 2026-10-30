@@ -308,6 +308,7 @@ function factsCard(repo) {
     ["Popularity", repo.popularity ? repo.popularity + " " + repo.pop_label : ""],
     ["Language", repo.language],
     ["Scenes", (repo.categories || []).join(", ")],
+    ["Variant of", (repo.queries || []).filter((q) => q.startsWith("variant-of:")).map((q) => q.slice(11)).join(", ")],
     ["Last push", ago(e.pushed_at)],
     ["Maintainer replied", e.maintainer_last_reply ? ago(e.maintainer_last_reply) : (e.issues_seen ? "not in recent issues" : "")],
     ["Releases / tags", e.releases != null ? e.releases + " / " + e.tags : ""],
@@ -412,7 +413,11 @@ async function loadState() {
     sel.replaceChildren(first, ...cats.map((c) => h("option", { value: c.id }, c.name)));
     sel.value = cur;
   };
-  fill(document.getElementById("f-scene"), h("option", { value: "" }, "All scenes"));
+  const fs = document.getElementById("f-scene");
+  const cur = fs.value;
+  fill(fs, h("option", { value: "" }, "All scenes"));
+  fs.append(h("option", { value: "variants" }, "Variant candidates"));
+  fs.value = cur;
   fill(document.getElementById("runscene"), h("option", { value: "" }, "Every enabled scene"));
 }
 
@@ -437,6 +442,28 @@ function listen() {
       loadRepos();
     }
   };
+}
+
+// ---------- variant hunt ----------
+
+async function previewVariant() {
+  const ref = document.getElementById("v-ref").value.trim();
+  const box = document.getElementById("v-plan");
+  if (!ref) return;
+  box.hidden = true;
+  let plan;
+  try {
+    plan = await api("/api/variant", { ref });
+  } catch (err) { alertLine(err.message); return; }
+  const cwes = (plan.cwes || []).join(", ");
+  document.getElementById("v-summary").textContent =
+    plan.ref + " in " + plan.repo + (plan.summary ? ": " + plan.summary : "") + (cwes ? " (" + cwes + ")" : "");
+  document.getElementById("v-lines").replaceChildren(
+    h("p", { class: "muted" }, "Lines the fix removed (-) or left around its change; a bar marks a dangerous call:"),
+    ...(plan.removed || []).slice(0, 8).map((l) =>
+      h("div", { class: "snip" + (l.sink ? " sink" : ""), title: l.path }, (l.context ? "  " : "- ") + l.text)));
+  document.getElementById("v-queries").value = (plan.queries || []).join("\n");
+  box.hidden = false;
 }
 
 // ---------- wiring ----------
@@ -477,6 +504,16 @@ function init() {
     } catch (err) { alertLine(err.message); }
   });
   document.getElementById("runcancel").addEventListener("click", () => api("/api/run/cancel", {}).catch((e) => alertLine(e.message)));
+  document.getElementById("v-preview").addEventListener("click", previewVariant);
+  document.getElementById("v-ref").addEventListener("keydown", (e) => { if (e.key === "Enter") previewVariant(); });
+  document.getElementById("v-hunt").addEventListener("click", async () => {
+    const variant = document.getElementById("v-ref").value.trim();
+    const queries = document.getElementById("v-queries").value.split("\n").map((q) => q.trim()).filter(Boolean);
+    const stages = ["enrich", "scan", "taint"].filter((s) => document.getElementById("st-" + s).checked);
+    try {
+      await api("/api/run", { stages, variant, variant_queries: queries });
+    } catch (err) { alertLine(err.message); }
+  });
   window.addEventListener("hashchange", route);
 
   loadState().catch((e) => alertLine(e.message));

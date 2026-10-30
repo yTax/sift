@@ -151,6 +151,10 @@ type RunOpts struct {
 	Stages     []string `json:"stages"`     // search, enrich, scan, taint (Semgrep)
 	Categories []string `json:"categories"` // empty = every enabled category
 	Force      bool     `json:"force"`      // ignore caches and review status
+	// Variant hunt (plan 4b): a GHSA id or fix commit/PR. It replaces search, and the run works
+	// on the repos the code search turns up instead of on categories.
+	Variant        string   `json:"variant,omitempty"`
+	VariantQueries []string `json:"variant_queries,omitempty"` // edited searches from the preview
 }
 
 func (a *App) StartRun(opts RunOpts) error {
@@ -254,6 +258,11 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	if len(stages) == 0 {
 		stages = map[string]bool{"search": true, "enrich": true, "scan": true}
 	}
+	variant := strings.TrimSpace(opts.Variant) != ""
+	if variant {
+		delete(stages, "search")
+		stages["variant"] = true
+	}
 	s := a.settings.Get()
 	token, tokenSrc := s.TokenAndSource()
 	h := newHTTP(token, a.logf)
@@ -288,10 +297,13 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		catIDs = append(catIDs, c.ID)
 	}
 	var stageList []string
-	if stages["scan"] && s.SemgrepAuto {
+	if stages["scan"] && s.SemgrepAuto && len(opts.Stages) == 0 { // a stage list you picked is kept as is
 		stages["taint"] = true
 	}
-	for _, st := range []string{"search", "enrich", "scan", "taint"} {
+	if variant {
+		cats, catIDs = nil, []string{variantScene}
+	}
+	for _, st := range []string{"search", "variant", "enrich", "scan", "taint"} {
 		if stages[st] {
 			stageList = append(stageList, st)
 		}
@@ -321,7 +333,7 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		a.hub.Publish(Event{Type: "state", Msg: outcome})
 	}()
 
-	if len(cats) == 0 {
+	if len(cats) == 0 && !variant {
 		a.warnf("no categories selected — enable some on the Dorks page")
 		outcome = "nothing to do"
 		return
@@ -341,19 +353,32 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		}
 	}
 
-	// the working set: every stored repo that belongs to a selected category
+	// the working set: every stored repo that belongs to a selected category, or for a variant
+	// hunt, the candidates it found
 	var working []string
-	a.store.Read(func(repos map[string]*Repo) {
-		for k, r := range repos {
-			for _, c := range r.Categories {
-				if selected[c] {
-					working = append(working, k)
-					break
+	if variant {
+		keys, f, n := a.stageVariant(ctx, h, opts)
+		working, rec.Found, rec.New = keys, f, n
+		if ctx.Err() != nil {
+			return
+		}
+		if len(working) == 0 {
+			outcome = "no candidates"
+			return
+		}
+	} else {
+		a.store.Read(func(repos map[string]*Repo) {
+			for k, r := range repos {
+				for _, c := range r.Categories {
+					if selected[c] {
+						working = append(working, k)
+						break
+					}
 				}
 			}
-		}
-	})
-	sort.Strings(working)
+		})
+		sort.Strings(working)
+	}
 
 	if stages["enrich"] {
 		a.stageEnrich(ctx, h, working, catMap, profiles, s, opts.Force)

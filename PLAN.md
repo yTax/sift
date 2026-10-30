@@ -42,11 +42,12 @@ Done so far:
 - **4a (known bugs)**, minus OSV (needs 3c's package names): published advisories and security-looking open issues.
 - **12 (checkers), layers 1 and 2**: eight checkers for JS/TS, Python, Go and PHP, tightened against real repos; Semgrep confirms findings on the top 30 (plan 7, `taint.go`).
 - **Scan speed**: literal prefilter (`litfilter.go`), concurrency from the CPU count, `scanEngine` versioning instead of forced rescans.
+- **4b (variants), cheap tier**: GHSA or fix commit → code searches → candidates in the `variants` scene.
 - **1 (SQLite)**, pulled forward: rewriting a 35 MB `state.json` during scans was filling the disk. State lives in `data/sift.db`; a save writes only the repos that changed.
 
 Next, in order:
 1. **Review the checker findings** from the first full run; every false positive becomes a fixture and a fix.
-2. **4b → 4c (variants)**: by hand first, then the daily advisory feed.
+2. **4c (variant feed)**: the daily advisory feed on top of 4b.
 3. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings, not just repos. Deployment details get settled with the real server config at that point.
 4. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough marks.
 6. The rest as they become useful: 2, 3b/3c, 9, 10, 11, the settings screen.

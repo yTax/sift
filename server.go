@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +36,7 @@ func (a *App) Routes(static fs.FS, extraHosts ...string) http.Handler {
 	mux.HandleFunc("POST /api/query/test", a.hQueryTest)
 	mux.HandleFunc("POST /api/run", a.hRun)
 	mux.HandleFunc("POST /api/run/cancel", a.hCancel)
+	mux.HandleFunc("POST /api/variant", a.hVariant)
 	mux.HandleFunc("POST /api/rescore", a.hRescore)
 	mux.HandleFunc("POST /api/defaults", a.hDefaults)
 	mux.HandleFunc("GET /api/events", a.hEvents)
@@ -595,6 +597,31 @@ func (a *App) hRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// hVariant previews a variant hunt: what the fix removed and the searches built from it.
+func (a *App) hVariant(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Ref string `json:"ref"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	token, _ := a.settings.Get().TokenAndSource()
+	if token == "" {
+		writeErr(w, 400, "variant hunting needs a GitHub token (code search requires one)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	defer cancel()
+	checkers, _ := loadCheckers(filepath.Join(a.base, "checkers"))
+	plan, err := PlanVariant(ctx, newHTTP(token, func(string, ...any) {}), req.Ref, checkers)
+	if err != nil {
+		writeErr(w, 422, err.Error())
+		return
+	}
+	writeJSON(w, plan)
 }
 
 func (a *App) hCancel(w http.ResponseWriter, r *http.Request) {
