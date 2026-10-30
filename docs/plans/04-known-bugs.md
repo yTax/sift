@@ -58,6 +58,8 @@ GitHub code search needs auth and has its own rate limits (and only indexes defa
 
 ## 4c. Automatic variant feed (after 4b works by hand)
 
+**Status:** built (`feed.go`, "Variant feed" in the run panel, a Settings group). Every half hour sift checks whether a day has passed since the last look; if so it starts a feed run. The run pulls reviewed advisories published since then (a week back the first time) whose CWEs map to a checker class, keeps npm/pip/go/composer ones that link a fix, ranks them (severity, server-side class over XSS, MCP/agent/WordPress/Jenkins packages first) and plans the top ones like a hand hunt. Only fixes that touch a line a checker flags are hunted (`feed_per_day`, default 8); the rest are listed with the reason and a "Hunt by hand" button. Candidates go through enrich → scan → Semgrep as one run. Not built yet: searching repos already in the DB with the fix's checker (step 4, first half), classifying a fix by the guard it added (step 3), Discord alerts (waits on plan 6).
+
 ### Why
 4b starts from an advisory you pick. The feed picks them for you: every new advisory in the scenes sift watches becomes a variant search on its own, so sift turns up candidates while you're away.
 

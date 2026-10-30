@@ -111,3 +111,29 @@ func TestVariantQueryNarrowing(t *testing.T) {
 		t.Errorf("narrowed = %q", s)
 	}
 }
+
+func TestSinkPhrase(t *testing.T) {
+	checkers, _ := loadCheckers(filepath.Join(t.TempDir(), "none"))
+	for _, c := range []struct{ lang, line, want string }{
+		{"python", `python_type = eval(field_type) if isinstance(field_type, str) else field_type`, "eval(field_type)"},
+		{"go", `cmd := exec.Command("sh", "-c", script)`, ""}, // a literal can't sit inside a quoted search
+		{"js-ts", `child_process.exec(command, { cwd })`, "child_process.exec(command"},
+		{"php", `$rows = $this->db->query($sql);`, "$this->db->query($sql)"},
+		{"python", `subprocess.run("ls -la", shell=True)`, ""},
+		{"js-ts", "exec(`git log ${ref}`)", ""},
+	} {
+		if got := sinkPhrase(c.lang, c.line, checkers); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.line, got, c.want)
+		}
+	}
+	lines := []VariantLine{{Path: "m/base.py", Text: "x", Sink: true, phrase: "eval(field_type)", words: []string{"python_type", "field_type"}}}
+	qs := variantQueries(lines)
+	if len(qs) != 1 || qs[0].String() != `"eval(field_type)" language:Python` {
+		t.Fatalf("queries = %v", qs)
+	}
+	// narrowing adds the words the phrase doesn't already hold
+	qs[0].used++
+	if s := qs[0].String(); s != `"eval(field_type)" python_type language:Python` {
+		t.Errorf("narrowed = %q", s)
+	}
+}

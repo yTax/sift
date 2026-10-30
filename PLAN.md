@@ -49,14 +49,14 @@ Done so far:
 - **1 (SQLite)**, pulled forward: rewriting a 35 MB `state.json` during scans was filling the disk. State lives in `data/sift.db`; a save writes only the repos that changed.
 - **Two rounds of reviewing real findings** (MCP, WordPress, Minecraft, self-hosted, Jenkins): every false-positive cluster became a fixture and a fix (strings, comments, docstrings, compared-only input, pass-through URL helpers, eval fixtures…).
 - **14 (library)**: drop-in folders, builders, live tests, settings screen.
+- **4c (variant feed)**: a daily check inside sift turns new advisories with a fix that touches a checker sink into variant hunts.
 
 Next, in order:
-1. **4c (variant feed)**: new advisories become variant hunts on their own (a daily tick inside sift until the CLI exists).
-2. **12 layer 3**: same-file wrappers and response types, the false-positive and missed-bug class found in the second review.
-3. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.
-4. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings. Deployment details get settled with the real server config at that point.
-5. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough real/dud marks.
-6. The rest as they become useful: 2, 3b/3c, 9, 11.
+1. **12 layer 3**: same-file wrappers and response types, the false-positive and missed-bug class found in the second review.
+2. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.
+3. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings. Deployment details get settled with the real server config at that point.
+4. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough real/dud marks.
+5. The rest as they become useful: 2, 3b/3c, 9, 11, and the rest of 4c (DB-side variant search, fix classification).
 After every real run: review the findings, and turn each false-positive cluster into fixtures and a fix.
 
 **Ruled out:** running a target app and firing payloads at it (dynamic exploit testing). sift never runs downloaded code. **Maybe later:** a free local LLM on the Oracle box for first-pass triage. No paid API.

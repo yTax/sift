@@ -86,6 +86,10 @@ code, .mono { font-family: var(--mono); font-size: 13px; }
 .variant input[type=search] { flex: 1 1 260px; min-width: 0; }
 .variant textarea { min-height: 70px; font-family: var(--mono); font-size: 12px; margin: 4px 0 8px; }
 .variant .snip.sink { border-left: 3px solid var(--warn); }
+.feed { list-style: none; padding: 0; margin: 8px 0 0; max-height: 420px; overflow-y: auto; }
+.feed li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+.feed li.skipped { opacity: .75; }
+.btn.small { padding: 1px 8px; font-size: 12px; }
 
 main { max-width: 1100px; margin: 0 auto; padding: 12px 16px; }
 select, input[type=search], textarea {

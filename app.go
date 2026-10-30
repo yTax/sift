@@ -153,6 +153,8 @@ type RunOpts struct {
 	// on the repos the code search turns up instead of on categories.
 	Variant        string   `json:"variant,omitempty"`
 	VariantQueries []string `json:"variant_queries,omitempty"` // edited searches from the preview
+	// Feed (plan 4c): hunt variants of the advisories published since the last check.
+	Feed bool `json:"feed,omitempty"`
 }
 
 func (a *App) StartRun(opts RunOpts) error {
@@ -256,10 +258,14 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	if len(stages) == 0 {
 		stages = map[string]bool{"search": true, "enrich": true, "scan": true}
 	}
-	variant := strings.TrimSpace(opts.Variant) != ""
+	variant := strings.TrimSpace(opts.Variant) != "" || opts.Feed
 	if variant {
 		delete(stages, "search")
-		stages["variant"] = true
+		if opts.Feed {
+			stages["feed"] = true
+		} else {
+			stages["variant"] = true
+		}
 	}
 	s := a.settings.Get()
 	token, tokenSrc := s.TokenAndSource()
@@ -301,7 +307,7 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	if variant {
 		cats, catIDs = nil, []string{variantScene}
 	}
-	for _, st := range []string{"search", "variant", "enrich", "scan", "taint"} {
+	for _, st := range []string{"search", "feed", "variant", "enrich", "scan", "taint"} {
 		if stages[st] {
 			stageList = append(stageList, st)
 		}
@@ -355,7 +361,13 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	// hunt, the candidates it found
 	var working []string
 	if variant {
-		keys, f, n := a.stageVariant(ctx, h, opts)
+		var keys []string
+		var f, n int
+		if opts.Feed {
+			keys, f, n = a.stageFeed(ctx, h, s)
+		} else {
+			keys, f, n = a.stageVariant(ctx, h, opts)
+		}
 		working, rec.Found, rec.New = keys, f, n
 		if ctx.Err() != nil {
 			return

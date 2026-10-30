@@ -120,7 +120,7 @@ function filtered() {
     if (status === "open" ? r.status === "skipped" : status && r.status !== status) return false;
     if (verdict === "none" ? r.verdict : verdict && r.verdict !== verdict) return false;
     if (q) {
-      const hay = (r.name + " " + (r.description || "") + " " + (r.language || "")).toLowerCase();
+      const hay = (r.name + " " + (r.description || "") + " " + (r.language || "") + " " + (r.variant_of || []).join(" ")).toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -440,6 +440,7 @@ function listen() {
       showProgress({ running: false, stage: e.msg });
       loadState();
       loadRepos();
+      if (document.getElementById("feed").open) loadFeed();
     }
   };
 }
@@ -464,6 +465,43 @@ async function previewVariant() {
       h("div", { class: "snip" + (l.sink ? " sink" : ""), title: l.path }, (l.context ? "  " : "- ") + l.text)));
   document.getElementById("v-queries").value = (plan.queries || []).join("\n");
   box.hidden = false;
+}
+
+// ---------- variant feed ----------
+
+async function loadFeed() {
+  let f;
+  try { f = await api("/api/feed"); } catch (err) { alertLine(err.message); return; }
+  const when = (iso) => (iso ? new Date(iso).toLocaleString() : "");
+  document.getElementById("feed-status").textContent = !f.enabled
+    ? "Off (turn it on in Settings)."
+    : f.last_check ? "Last checked " + when(f.last_check) + ", next after " + when(f.next_check) + "." : "Not checked yet; the first check looks back a week.";
+  const items = f.items || [];
+  const showCandidates = (ghsa) => {
+    document.getElementById("q").value = ghsa;
+    document.getElementById("f-scene").value = "variants";
+    state.shown = PAGE;
+    renderList();
+    document.getElementById("list-view").scrollIntoView();
+  };
+  const handHunt = (ghsa) => {
+    document.getElementById("v-ref").value = ghsa;
+    document.querySelector("details.variant").open = true;
+    previewVariant();
+  };
+  document.getElementById("feed-items").replaceChildren(
+    ...(items.length ? [] : [h("li", { class: "muted" }, "Nothing yet.")]),
+    ...items.slice(0, 60).map((it) => h("li", { class: it.status },
+      h("div", {},
+        h("span", { class: "chip" + (it.status === "hunted" ? " good" : "") }, it.status),
+        " ", ext(it.url || "https://github.com/advisories/" + it.ghsa, it.ghsa),
+        " ", h("span", { class: "muted" }, [it.severity, it.class, it.package].filter(Boolean).join(" · "))),
+      h("div", {}, it.summary),
+      it.status === "hunted"
+        ? h("div", { class: "muted" }, it.found + " candidate repos (" + it.new + " new) ",
+            it.found ? h("button", { class: "btn small", onclick: () => showCandidates(it.ghsa) }, "Show") : null)
+        : h("div", { class: "muted" }, it.reason + " ",
+            h("button", { class: "btn small", onclick: () => handHunt(it.ghsa) }, "Hunt by hand")))));
 }
 
 // ---------- wiring ----------
@@ -515,6 +553,8 @@ function init() {
     } catch (err) { alertLine(err.message); }
   });
   document.getElementById("runcancel").addEventListener("click", () => api("/api/run/cancel", {}).catch((e) => alertLine(e.message)));
+  document.getElementById("feed").addEventListener("toggle", (e) => { if (e.target.open) loadFeed(); });
+  document.getElementById("feed-run").addEventListener("click", () => api("/api/feed/run", {}).catch((e) => alertLine(e.message)));
   document.getElementById("v-preview").addEventListener("click", previewVariant);
   document.getElementById("v-ref").addEventListener("keydown", (e) => { if (e.key === "Enter") previewVariant(); });
   document.getElementById("v-hunt").addEventListener("click", async () => {

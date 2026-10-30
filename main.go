@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"io/fs"
@@ -38,6 +39,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("startup failed: %v", err)
 	}
+	go app.feedLoop(context.Background())
 
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {

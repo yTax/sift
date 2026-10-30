@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -41,6 +42,8 @@ type VariantLine struct {
 	// words ranked for search: identifiers only the pre-fix code has come first, since the
 	// fixed version contains the rest too
 	words []string
+	// phrase is the dangerous call as written (`eval(field_type)`), for an exact-match search
+	phrase string
 }
 
 type fixRef struct {
@@ -94,13 +97,23 @@ func parseFixRefs(links []string) []fixRef {
 }
 
 type ghGlobalAdvisory struct {
-	GHSAID             string   `json:"ghsa_id"`
-	Summary            string   `json:"summary"`
-	References         []string `json:"references"`
-	SourceCodeLocation string   `json:"source_code_location"`
+	GHSAID             string     `json:"ghsa_id"`
+	HTMLURL            string     `json:"html_url"`
+	Summary            string     `json:"summary"`
+	Severity           string     `json:"severity"`
+	References         []string   `json:"references"`
+	SourceCodeLocation string     `json:"source_code_location"`
+	PublishedAt        time.Time  `json:"published_at"`
+	WithdrawnAt        *time.Time `json:"withdrawn_at"`
 	CWEs               []struct {
 		CWEID string `json:"cwe_id"`
 	} `json:"cwes"`
+	Vulnerabilities []struct {
+		Package *struct {
+			Ecosystem string `json:"ecosystem"`
+			Name      string `json:"name"`
+		} `json:"package"`
+	} `json:"vulnerabilities"`
 }
 
 type ghPatchFile struct {
@@ -252,6 +265,9 @@ func removedLines(files []ghPatchFile, checkers []*Checker) []VariantLine {
 		}
 		for i := range lines {
 			lines[i].words = distinctiveWords(lines[i].Text, addedWords)
+			if lines[i].Sink {
+				lines[i].phrase = sinkPhrase(lang, lines[i].Text, checkers)
+			}
 		}
 		out = append(out, lines...)
 	}
@@ -323,13 +339,97 @@ func init() {
 	}
 }
 
-// variantQueries builds up to three code searches, one per distinctive removed line, sink
-// lines first. GitHub's code search ignores punctuation, so a query is a few rare words plus
-// the language, which finds copied and lightly edited code.
+// sinkPhrase cuts the dangerous call out of a line the way code search can match it exactly:
+// receiver chain, name, "(" and the first argument when that is a name, as in
+// `exec.Command(tfCmd` or `eval(field_type)`. Empty when the first argument is a literal or an
+// expression, or the call is too short to mean anything.
+func sinkPhrase(lang, line string, checkers []*Checker) string {
+	start := -1
+	for _, c := range checkers {
+		l := c.Langs[lang]
+		if l == nil {
+			continue
+		}
+		for _, re := range l.sinks {
+			if loc := re.FindStringIndex(line); loc != nil && (start < 0 || loc[0] < start) {
+				start = loc[0]
+			}
+		}
+	}
+	if start < 0 {
+		return ""
+	}
+	for start < len(line) && !isIdentByte(line[start]) { // a match may begin on the byte before the name
+		start++
+	}
+	// back over a receiver chain: os.system, child_process.exec, $this->db->query
+	for {
+		j := start
+		switch {
+		case j >= 1 && line[j-1] == '.':
+			j--
+		case j >= 2 && (line[j-2:j] == "->" || line[j-2:j] == "::"):
+			j -= 2
+		}
+		k := j
+		for k > 0 && isIdentByte(line[k-1]) {
+			k--
+		}
+		if j == start || k == j {
+			break
+		}
+		start = k
+	}
+	open := strings.IndexByte(line[start:], '(')
+	if open < 0 {
+		return ""
+	}
+	end := start + open + 1
+	arg := end
+	for end < len(line) && (isIdentByte(line[end]) || line[end] == '.') {
+		end++
+	}
+	if end == arg {
+		return ""
+	}
+	if end < len(line) && line[end] == ')' {
+		end++
+	}
+	if p := line[start:end]; len(p) >= 8 && len(p) <= 80 {
+		return p
+	}
+	return ""
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || b == '$' || b >= 'a' && b <= 'z' || b >= 'A' && b <= 'Z' || b >= '0' && b <= '9'
+}
+
+// variantQueries builds up to three code searches, sink lines first. A sink line with a usable
+// call becomes an exact phrase (`"eval(field_type)"`), which code search matches with its
+// punctuation and which finds copies far more precisely than loose words; other lines become
+// a few rare words plus the language, which also finds lightly edited code.
 func variantQueries(lines []VariantLine) []variantQuery {
 	var out []variantQuery
 	seen := map[string]bool{}
 	for _, l := range lines {
+		if l.phrase != "" {
+			words := []string{`"` + l.phrase + `"`}
+			for _, w := range l.words {
+				if !strings.Contains(strings.ToLower(l.phrase), strings.ToLower(w)) {
+					words = append(words, w)
+				}
+			}
+			q := variantQuery{words: words, file: l.Path, used: 1}
+			if s := q.String(); !seen[s] {
+				seen[s] = true
+				out = append(out, q)
+			}
+			if len(out) == 3 {
+				break
+			}
+			continue
+		}
 		if len(l.words) < 2 {
 			continue
 		}
@@ -517,10 +617,18 @@ func (a *App) stageVariant(ctx context.Context, h *HTTP, opts RunOpts) (keys []s
 	if plan.Summary != "" {
 		a.logf("variant of %s: %s", plan.Ref, plan.Summary)
 	}
-	tag := "variant-of:" + plan.Ref
-	self := strings.ToLower(plan.Repo)
+	return a.huntVariant(ctx, h, plan.Ref, plan.Repo, queries, variantPerQuery, "variant", false)
+}
+
+// huntVariant runs a plan's code searches and files every matching repo (except the fixed one
+// and forks) as a candidate tagged variant-of:<ref>. It returns the candidates' keys. strict
+// drops a search that still matches too much after narrowing: nobody checked it, and a search
+// that matches half of GitHub only fills the DB with unrelated repos.
+func (a *App) huntVariant(ctx context.Context, h *HTTP, ref, fixedRepo string, queries []variantQuery, perQuery int, stage string, strict bool) (keys []string, found, newCount int) {
+	tag := "variant-of:" + ref
+	self := strings.ToLower(fixedRepo)
 	seen := map[string]bool{}
-	a.setProgress("variant", 0, len(queries))
+	a.setProgress(stage, 0, len(queries))
 	for i, q := range queries {
 		if ctx.Err() != nil {
 			return
@@ -530,7 +638,7 @@ func (a *App) stageVariant(ctx context.Context, h *HTTP, opts RunOpts) (keys []s
 		var err error
 		for {
 			a.logf("[variant] code search: %s", q)
-			items, total, err = h.SearchCode(ctx, q.String(), variantPerQuery)
+			items, total, err = h.SearchCode(ctx, q.String(), perQuery)
 			if err != nil || total <= variantNarrowAt || q.used >= len(q.words) || q.used >= 6 {
 				break
 			}
@@ -539,6 +647,11 @@ func (a *App) stageVariant(ctx context.Context, h *HTTP, opts RunOpts) (keys []s
 		}
 		if err != nil {
 			a.warnf("[variant] %s: %v", q, err)
+		}
+		if strict && total > variantNarrowAt {
+			a.logf("[variant] %d files still match, too generic to be this bug; dropped", total)
+			a.setProgress(stage, i+1, len(queries))
+			continue
 		}
 		nNew := 0
 		for _, it := range items {
@@ -565,7 +678,7 @@ func (a *App) stageVariant(ctx context.Context, h *HTTP, opts RunOpts) (keys []s
 		found += len(items)
 		newCount += nNew
 		a.logf("[variant] %d of %d matching files kept, %d new repos", len(items), total, nNew)
-		a.setProgress("variant", i+1, len(queries))
+		a.setProgress(stage, i+1, len(queries))
 	}
 	sort.Strings(keys)
 	return keys, found, newCount

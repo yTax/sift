@@ -36,6 +36,10 @@ const SETTINGS_FORM = [
     ["semgrep_top_n", "num", "How many top repos to confirm"],
     ["semgrep_path", "text", "Semgrep binary (empty = PATH, then sift's own venv)"],
   ]],
+  ["Variant feed", [
+    ["variant_feed", "bool", "Once a day, hunt variants of new advisories sift's checkers understand"],
+    ["feed_per_day", "num", "Hunts per daily check (best advisories first)"],
+  ]],
   ["Ranking", [
     ["score_cve_path", "bool", "Score how a finding would become a CVE"],
   ]],

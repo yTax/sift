@@ -580,6 +580,18 @@ func (s *Store) Runs() []RunRecord {
 	return out
 }
 
+// Meta reads a value kept beside the repos (the variant feed's state, say); "" when unset.
+func (s *Store) Meta(k string) string {
+	var v string
+	_ = s.db.QueryRow(`SELECT v FROM meta WHERE k = ?`, k).Scan(&v)
+	return v
+}
+
+func (s *Store) SetMeta(k, v string) error {
+	_, err := s.db.Exec(`INSERT INTO meta (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, v)
+	return err
+}
+
 func addUnique(list []string, v string) []string {
 	for _, x := range list {
 		if x == v {

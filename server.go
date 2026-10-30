@@ -36,6 +36,8 @@ func (a *App) Routes(static fs.FS, extraHosts ...string) http.Handler {
 	mux.HandleFunc("POST /api/run", a.hRun)
 	mux.HandleFunc("POST /api/run/cancel", a.hCancel)
 	mux.HandleFunc("POST /api/variant", a.hVariant)
+	mux.HandleFunc("GET /api/feed", a.hFeed)
+	mux.HandleFunc("POST /api/feed/run", a.hFeedRun)
 	mux.HandleFunc("POST /api/rescore", a.hRescore)
 	mux.HandleFunc("POST /api/defaults", a.hDefaults)
 	mux.HandleFunc("GET /api/library", a.hLibrary)
@@ -204,6 +206,7 @@ type repoSummary struct {
 	Confirmed    int            `json:"confirmed"`
 	Classes      map[string]int `json:"classes,omitempty"`
 	FirstSeen    time.Time      `json:"first_seen"`
+	VariantOf    []string       `json:"variant_of,omitempty"`
 }
 
 func summarize(r *Repo) repoSummary {
@@ -212,6 +215,11 @@ func summarize(r *Repo) repoSummary {
 		Language: r.Language, Popularity: r.Popularity, PopLabel: r.PopLabel, Categories: r.Categories,
 		Status: r.Status, HasNotes: r.Notes != "", Score: r.Score, Filter: r.Filter, FirstSeen: r.FirstSeen,
 		CVEPath: r.CVEPath, Verdict: r.Verdict,
+	}
+	for _, q := range r.Queries {
+		if ref, ok := strings.CutPrefix(q, "variant-of:"); ok {
+			s.VariantOf = append(s.VariantOf, ref)
+		}
 	}
 	if e := r.Enriched; e != nil {
 		if !e.PushedAt.IsZero() {

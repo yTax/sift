@@ -71,6 +71,11 @@ type Settings struct {
 	SemgrepTopN int    `json:"semgrep_top_n"`
 	SemgrepPath string `json:"semgrep_path,omitempty"` // empty: PATH, then sift's own venv
 
+	// Variant feed (plan 4c): once a day, new advisories sift's checkers understand become
+	// variant hunts on their own.
+	VariantFeed bool `json:"variant_feed"`
+	FeedPerDay  int  `json:"feed_per_day"` // hunts per check, best advisories first
+
 	Overrides       map[string]CategoryOverride `json:"overrides"`
 	DisabledQueries map[string]bool             `json:"disabled_queries"` // "category/query"
 	DisabledFiles   map[string]bool             `json:"disabled_files"`   // "checkers/x.yaml": library files switched off
@@ -102,6 +107,8 @@ func defaultSettings() Settings {
 		ScoreCVEPath:    true,
 		SemgrepAuto:     true,
 		SemgrepTopN:     30,
+		VariantFeed:     true,
+		FeedPerDay:      8,
 		Overrides:       map[string]CategoryOverride{},
 		DisabledQueries: map[string]bool{},
 		DisabledFiles:   map[string]bool{},
