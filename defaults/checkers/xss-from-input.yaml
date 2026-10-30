@@ -23,10 +23,12 @@ langs:
       - '\b(escape|escapeHtml|escapeHTML|sanitize|DOMPurify|encode)\w*\('
   python:
     interpolated: true
+    arg: first
     sinks:
       - '\brender_template_string\('
-      - '\b(make_response|HTMLResponse|HttpResponse|Response)\('
+      # a dict/list first argument is a JSON response (DRF), an empty call has no body
+      - '\b(make_response|HTMLResponse|HttpResponse|Response)\((\s*$|\s*[^\s{\[)])'
       - '\bMarkup\('
-      - '^\s*return\s+f?[''"].*<\w'
+      - '^\s*return\s+(?P<arg>f?[''"].*<\w.*)'
     line_guards:
       - '\b(escape|html\.escape|bleach\.clean|markupsafe\.escape)\('

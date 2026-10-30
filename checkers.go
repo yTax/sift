@@ -66,7 +66,7 @@ type Finding struct {
 
 // Build, CI and dev scripts run on the developer's machine with their own arguments; nothing
 // there is reachable by an attacker, so checkers skip them.
-var checkerSkipPath = regexp.MustCompile(`(^|/)(scripts?|ci|hack|loadtest|load-tests?|benchmarks?|bench|e2e|smoke|harness|devtools|\.github|\.husky)/|\.config\.(js|mjs|cjs|ts)$`)
+var checkerSkipPath = regexp.MustCompile(`(^|/)(scripts?|ci|hack|loadtest|load-tests?|benchmarks?|bench|e2e|smoke|harness|devtools|evals?|fixtures?|__fixtures__|__mocks__|testdata|\.github|\.husky)/|\.config\.(js|mjs|cjs|ts)$`)
 
 const (
 	maxFindingsPerRepo = 100
@@ -661,8 +661,8 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 				via, conf := "", "medium"
 				if !l.NoInput {
 					args := line[loc[0]:]
-					if i+1 <= f.end {
-						args += " " + lines[i+1] // calls often wrap
+					if i+1 <= f.end && !callCloses(args) {
+						args += " " + lines[i+1] // the call wraps
 					}
 					if args = narrowArg(l, line, args, loc); args == "" {
 						continue
@@ -807,41 +807,117 @@ var defLine = regexp.MustCompile(`^\s*(export\s+)?((async|static|private|public|
 // narrowArg cuts the call text down to the part where input matters (see checkerLang.Arg).
 // An empty result means "nothing there can carry input".
 func narrowArg(l *checkerLang, line, args string, loc []int) string {
-	if len(loc) == 4 {
-		return line[loc[2]:loc[3]]
-	}
-	if l.Arg == "" {
+	var first string
+	switch {
+	case len(loc) == 4: // the sink's (?P<arg>...) group
+		first = strings.TrimSpace(line[loc[2]:loc[3]])
+	case l.Arg == "":
 		return args
+	default:
+		var ok bool
+		if first, ok = firstArg(args); !ok && first == "" {
+			return args
+		}
 	}
-	open := strings.IndexByte(args, '(')
+	if l.Arg != "url-start" {
+		return first
+	}
+	return urlStart(first)
+}
+
+// firstArg returns the first argument of the first call in s. ok is false when the call isn't
+// closed in s (then the rest of s is returned).
+func firstArg(s string) (string, bool) {
+	open := strings.IndexByte(s, '(')
 	if open < 0 {
-		return args
+		return "", false
 	}
-	depth, end := 0, len(args)
-scan:
-	for i := open + 1; i < len(args); i++ {
-		switch args[i] {
+	depth := 0
+	for i := open + 1; i < len(s); i++ {
+		switch s[i] {
+		case '"', '\'', '`':
+			i = skipString(s, i) - 1
 		case '(', '[', '{':
 			depth++
 		case ')', ']', '}':
 			if depth == 0 {
-				end = i
-				break scan
+				return strings.TrimSpace(s[open+1 : i]), true
 			}
 			depth--
 		case ',':
 			if depth == 0 {
-				end = i
-				break scan
+				return strings.TrimSpace(s[open+1 : i]), true
 			}
 		}
 	}
-	first := strings.TrimSpace(args[open+1 : end])
-	if l.Arg != "url-start" {
-		return first
+	return strings.TrimSpace(s[open+1:]), false
+}
+
+// callCloses reports whether the first call in s ends in s, so its arguments can't be on the
+// next line. Without a call it looks for the end of the statement.
+func callCloses(s string) bool {
+	open := strings.IndexByte(s, '(')
+	if open < 0 {
+		return strings.HasSuffix(strings.TrimSpace(s), ";")
 	}
-	// keep only what decides scheme and host
+	depth := 0
+	for i := open + 1; i < len(s); i++ {
+		switch s[i] {
+		case '"', '\'', '`':
+			i = skipString(s, i) - 1
+		case '(':
+			depth++
+		case ')':
+			if depth == 0 {
+				return true
+			}
+			depth--
+		}
+	}
+	return false
+}
+
+// skipString returns the index just past the string literal opening at s[i]; an unterminated
+// one runs to the end of s.
+func skipString(s string, i int) int {
+	q := s[i]
+	for j := i + 1; j < len(s); j++ {
+		switch s[j] {
+		case '\\':
+			j++
+		case q:
+			return j + 1
+		}
+	}
+	return len(s)
+}
+
+// passThrough calls hand their argument on as the URL; any other call builds the URL itself,
+// usually on a fixed base (an API client's endpoint helper), so the input doesn't pick the host.
+var (
+	urlCall     = regexp.MustCompile(`^(new\s+)?([\w$.]+)\(`)
+	urlReceiver = regexp.MustCompile(`^([\w$.]+)\.(String|toString|strip|trim)\(\)$`)
+	passThrough = map[string]bool{"URL": true, "String": true, "str": true, "encodeURI": true, "urljoin": true, "parse.urljoin": true, "urllib.parse.urljoin": true, "url.Parse": true}
+)
+
+// urlStart keeps only the part of a URL argument that decides scheme and host.
+func urlStart(first string) string {
 	first = strings.TrimSpace(strings.TrimPrefix(first, "await "))
+	for range 3 {
+		if m := urlReceiver.FindStringSubmatch(first); m != nil {
+			first = m[1]
+			continue
+		}
+		m := urlCall.FindStringSubmatch(first)
+		if m == nil {
+			break
+		}
+		if !passThrough[m[2]] {
+			return ""
+		}
+		a, _ := firstArg(first)
+		first = strings.TrimSpace(a)
+	}
 	switch {
 	case strings.HasPrefix(first, "`${"):
 		first = first[3:]

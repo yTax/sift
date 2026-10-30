@@ -32,7 +32,9 @@ langs:
     arg: url-start
     sinks:
       - '\bhttp\.(Get|Post|Head|PostForm)\('
-      - '\bhttp\.NewRequest(WithContext)?\('
+      # the URL is the 3rd/2nd argument; r.Context() in the 1st is not where input matters
+      - '\bhttp\.NewRequestWithContext\([^,]+,[^,]+,\s*(?P<arg>[^,]+)'
+      - '\bhttp\.NewRequest\([^,]+,\s*(?P<arg>[^,]+)'
       - '\bclient\.(Get|Post|Head)\('
     guards:
       - '\b(allowedHosts|allowlist|whitelist|blocklist|denylist)\b'

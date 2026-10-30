@@ -357,6 +357,126 @@ server.tool("find", "Find", { name: z.string() }, async ({ name }) => {
   const rows = await db.all(` + "`SELECT * FROM t WHERE name = '${name}'`" + `);
   return { content: [{ type: "text", text: JSON.stringify(rows) }] };
 });`, true},
+
+	// --- false positives from the second real run (MCP, Minecraft, WordPress, self-hosted) ---
+	// a call that closes on its line doesn't borrow the next line's input
+	{"code-from-input", "php assert followed by request line", "src/Controller/A.php", `<?php
+class A {
+    public function patch(Request $request): JsonResponse
+    {
+        \assert($user instanceof User);
+        $data = json_decode($request->getContent(), true);
+    }
+}`, false},
+	{"shell-from-input", "js constant command, input only in options", "routes/ide.js", `
+router.post('/git/status', async (req, res) => {
+  const statusOutput = execSync('git status --porcelain', {
+    cwd: req.pluginPath,
+  });
+});`, false},
+	{"shell-from-input", "js input in the command itself", "routes/ide.js", `
+router.post('/git/checkout', async (req, res) => {
+  execSync(` + "`git checkout ${req.body.branch}`" + `, {
+    cwd: dir,
+  });
+});`, true},
+	{"sql-from-input", "js prepare with the input bound in get()", "routes/admin.js", `
+router.get('/:id', (req, res) => {
+  const target = db.prepare('SELECT email FROM users WHERE id = ?').get(req.params.id);
+  res.json(target);
+});`, false},
+	{"sql-from-input", "python bound params on the next line", "app/main.py", `
+@app.post("/feedback")
+def feedback_message_add(body: dict):
+    conn.execute("INSERT INTO feedback_messages (id, body) VALUES (?, ?)",
+                 (new_id, body["text"]))
+`, false},
+	{"sql-from-input", "python concat with commas inside the query string", "app/main.py", `
+@app.post("/find")
+def find(body: dict):
+    conn.execute("SELECT a, b FROM t WHERE x = '" + body["x"] + "'")
+`, true},
+	// methods that share a name with a dangerous function
+	{"code-from-input", "php call_user_func with request as a plain argument", "app/App.php", `<?php
+function dispatch($request, $controller, $parameters) {
+    return call_user_func($controller, $request, $parameters);
+}`, false},
+	{"code-from-input", "php call_user_func on a request value", "app/App.php", `<?php
+function dispatch() {
+    $cb = $_GET['cb'];
+    return call_user_func($cb, 1);
+}`, true},
+	{"shell-from-input", "php method named system", "routes/nodes.php", `<?php
+function handle($request, $id) {
+    return (new WingsAdminController())->system($request, (int) $id);
+}`, false},
+	{"shell-from-input", "php system() on request input", "routes/nodes.php", `<?php
+function handle() {
+    system('ping -c 1 ' . $_GET['host']);
+}`, true},
+	{"shell-from-input", "php backticks inside a string literal", "bootstrap/app.php", `<?php
+function render($request) {
+    $lines = ['Nothing lives at :url.', ['url' => '` + "`" + `'.str_replace('` + "`" + `', '%60', $request->url()).'` + "`" + `']];
+}`, false},
+	{"tool-path-to-fs", "php methods named rename/require/file", "app/WebSpaces.php", `<?php
+function rename($request, $uuid) {
+    $denied = CheckWebSpacePermission::require($request, $space, $permission);
+    $recipe->setPhoto($request->file('photo'));
+    return (new WebSpaceFilesController())->rename($request, $uuid);
+}`, false},
+	{"tool-path-to-fs", "php reading the request body", "api/notes.php", `<?php
+function updateColor() {
+    $input = json_decode(file_get_contents('php://input'), true);
+    return $input['color'];
+}`, false},
+	{"tool-path-to-fs", "python copyfileobj takes file objects", "routes/upload.py", `
+@app.post("/upload")
+async def upload_file(file: UploadFile):
+    with open(DEST, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+`, false},
+	{"xss-from-input", "drf dict response is JSON", "views.py", `
+@app.route("/strava")
+def post(code):
+    return Response({'message': f'Strava request failed: {code}'}, status=502)
+`, false},
+	{"xss-from-input", "flask text response with path input", "settings/routes.py", `
+@app.route("/settings/<area>")
+def settings_area(area):
+    return Response(f"unknown settings area {area!r}", status=404)
+`, true},
+	{"xss-from-input", "empty response before a line with input", "routes.py", `
+@app.get("/stream")
+def stream(fmt):
+    if gone:
+        return Response(status_code=499)
+    log(f"<b>{fmt}</b>")
+`, false},
+	{"fetch-from-input", "go request context is not the url", "gateway.go", `
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	probe, err := http.NewRequestWithContext(r.Context(), http.MethodGet, collectorHealthURL, nil)
+	_ = probe
+}`, false},
+	{"fetch-from-input", "go url from the query string", "proxy.go", `
+func handleProxy(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("url")
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target, nil)
+	_ = req
+}`, true},
+	{"fetch-from-input", "python url built by a helper on a fixed controller", "tools/tags.py", `
+@mcp.tool()
+async def update_mac_tag(site_id: str, name: str):
+    response = await client.put(_endpoint(site_id), json_data={})
+`, false},
+	{"fetch-from-input", "python url wrapped in str()", "tools/fetch.py", `
+@mcp.tool()
+async def fetch_page(url: str):
+    response = await client.get(str(url))
+`, true},
+	{"shell-from-input", "intentionally vulnerable eval fixtures", "evals/vulnerable/x-001/src/server.js", `
+server.tool("run", "Run", { file: z.string() }, async ({ file }) => {
+  const out = execSync(` + "`wc -l ${file}`" + `).toString();
+});`, false},
 }
 
 func TestCheckers(t *testing.T) {

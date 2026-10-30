@@ -25,11 +25,13 @@ langs:
     sinks:
       - '\bgob\.NewDecoder\([^)]*\)\.Decode\('
     guards: []
+  # assert() and create_function() stopped evaluating strings in PHP 8, so they're left out.
   php:
+    arg: first
     sinks:
-      - '\b(eval|assert|create_function)\('
-      - '\bunserialize\('
-      - '\bpreg_replace\(\s*[''"]/.*/[a-z]*e[a-z]*[''"]'
-      - '\bcall_user_func(_array)?\(\s*\$'
+      - '(^|[^>:$\w])eval\('
+      - '(^|[^>:$\w])unserialize\('
+      - '\bpreg_replace\(\s*[''"]/.*/[a-z]*e[a-z]*[''"]\s*,(?P<arg>.*)'
+      - '(^|[^>:$\w])call_user_func(_array)?\(\s*\$'
     line_guards:
       - 'allowed_classes''\]?\s*=>\s*false'

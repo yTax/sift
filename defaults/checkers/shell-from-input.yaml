@@ -3,8 +3,11 @@ class: cmd-exec
 weight: 4
 message: Handler input reaches a command that runs through a shell
 
+# arg: first: the command is the first argument; options like { cwd: req.path } don't make
+# a constant command injectable.
 langs:
   js-ts:
+    arg: first
     sinks:
       - '(^|[^.\w]|child_process\.|cp\.)(exec|execSync)\('
       - '\bexeca(Command|CommandSync)?\('
@@ -14,6 +17,7 @@ langs:
       - 'shell-quote|shellQuote|shellescape|escapeShellArg|quote\(\s*\['
       - '\b(allowedCommands|ALLOWED_COMMANDS|commandAllowlist|allowlist|whitelist)\b'
   python:
+    arg: first
     sinks:
       - '\bsubprocess\.\w+\(.*shell\s*=\s*True'
       - '\bos\.(system|popen)\('
@@ -29,8 +33,11 @@ langs:
       - 'shellescape|shellquote'
       - '\b(allowedCommands|allowlist|whitelist)\b'
   php:
+    arg: first
     sinks:
-      - '\b(system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\('
-      - '`[^`]*\$'
+      # not ->system( or ::exec(: methods that happen to share the name
+      - '(^|[^>:$\w])(system|exec|shell_exec|passthru|popen|proc_open|pcntl_exec)\('
+      # the backtick operator, not a backtick inside a quoted string
+      - '(^|[^''"\w\\])`(?P<arg>[^`]*\$[^`]*)`'
     line_guards:
       - '\bescapeshellarg\(|\bescapeshellcmd\('

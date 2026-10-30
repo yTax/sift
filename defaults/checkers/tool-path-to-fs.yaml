@@ -22,7 +22,7 @@ langs:
     arg: first
     sinks:
       - '(^|[^.\w])open\('
-      - '\b(os\.(remove|unlink|rmdir|makedirs|mkdir|listdir|scandir|rename|replace)|shutil\.(rmtree|copy\w*|move))\('
+      - '\b(os\.(remove|unlink|rmdir|makedirs|mkdir|listdir|scandir|rename|replace)|shutil\.(rmtree|copy|copy2|copyfile|copytree|move))\('
       - '(?P<arg>[\w.]+(\([^()]*\))?)\.(read_text|read_bytes|write_text|write_bytes|unlink|rmdir|iterdir|open|mkdir)\('
       - '\b(send_file|send_from_directory|FileResponse)\('
       - '\baiofiles\.open\('
@@ -48,10 +48,12 @@ langs:
       - '\b(validate|sanitize|check|verify|ensure|safe)\w*(Path|File|Dir)\w*\('
   php:
     sinks:
-      - '\b(include|include_once|require|require_once)\b\s*\(?'
-      - '\b(file_get_contents|file_put_contents|fopen|readfile|unlink|file|copy|rename|mkdir|rmdir|scandir|opendir|is_file|filesize)\('
+      # not ->require( or ::rename(: methods that happen to share the name
+      - '(^|[^>:$\w])(include|include_once|require|require_once)\b\s*\(?'
+      - '(^|[^>:$\w])(file_get_contents|file_put_contents|fopen|readfile|unlink|file|copy|rename|mkdir|rmdir|scandir|opendir|is_file|filesize)\('
     line_guards:
       - '\bbasename\('
+      - '[''"]php://(input|stdin|memory|temp|output)'
     guards:
       - '\brealpath\('
       - 'validate_file\(|sanitize_file_name\('
