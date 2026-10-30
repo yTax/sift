@@ -32,6 +32,7 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 14 | [`14-library.md`](docs/plans/14-library.md) | Drop-in folders for dorks, checkers, sinks and Semgrep rules, with builders and live tests in the panel, plus the settings screen | 8a |
 | 15 | [`15-impact-and-reportability.md`](docs/plans/15-impact-and-reportability.md) | "Used by" (deps.dev dependents, downloads, installs) and a "CVE-ready" signal: how much a bug matters and whether it will become a CVE | 4a |
 | 16 | [`16-report-drafts.md`](docs/plans/16-report-drafts.md) | Turn a verified finding into an advisory draft (title, CWE, CVSS, permalinks, fix, where to send it) from templates | 15 |
+| 17 | [`17-bench.md`](docs/plans/17-bench.md) | Score the checkers on real advisories (code before and after the fix), so every change is measured and the misses pick the next checker | 4c |
 
 ### Build order
 
@@ -50,14 +51,14 @@ Done so far:
 - **Two rounds of reviewing real findings** (MCP, WordPress, Minecraft, self-hosted, Jenkins): every false-positive cluster became a fixture and a fix (strings, comments, docstrings, compared-only input, pass-through URL helpers, eval fixtures…).
 - **14 (library)**: drop-in folders, builders, live tests, settings screen.
 - **4c (variant feed)**: a daily check inside sift turns new advisories with a fix that touches a checker sink into variant hunts.
+- **17 (bench)** and **12 layer 3**: 1,842 fixed advisories score every checker change. Library mode, input-aware guards, same-file helpers and four new checkers (route auth gaps, prototype pollution, open redirect, template injection) took real-bug recall from 1% to 9%.
 
 Next, in order:
-1. **12 layer 3**: same-file wrappers and response types, the false-positive and missed-bug class found in the second review.
-2. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.
-3. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings. Deployment details get settled with the real server config at that point.
-4. **7b (CodeQL)** on the Oracle box, and **13 (learned ranking)** once there are enough real/dud marks.
-5. The rest as they become useful: 2, 3b/3c, 9, 11, and the rest of 4c (DB-side variant search, fix classification).
-After every real run: review the findings, and turn each false-positive cluster into fixtures and a fix.
+1. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.
+2. **5 (CLI) → 8b (hosting on Oracle) → 6 (Discord, watch)**: runs while you're out and pings your phone with confirmed findings. Deployment details get settled with the real server config at that point.
+3. **7b (CodeQL)** on the Oracle box (the bench's ~750 `no-sink` misses are validator bypasses only real data flow reaches), and **13 (learned ranking)** once there are enough real/dud marks.
+4. The rest as they become useful: 2, 3b/3c, 9, 11, and the rest of 4c (DB-side variant search, fix classification).
+After every real run: review the findings, and turn each false-positive cluster into fixtures and a fix. After every checker change: score the bench (`sift -bench`) and keep the change only if it doesn't lose real catches.
 
 **Ruled out:** running a target app and firing payloads at it (dynamic exploit testing). sift never runs downloaded code. **Maybe later:** a free local LLM on the Oracle box for first-pass triage. No paid API.
 

@@ -119,6 +119,10 @@ func (a *App) maybeFeed() {
 
 // fetchAdvisories lists reviewed advisories published since the given day with any of the CWEs.
 func fetchAdvisories(ctx context.Context, h *HTTP, since time.Time, cwes []string) ([]ghGlobalAdvisory, error) {
+	return fetchAdvisoriesPages(ctx, h, since, cwes, 10)
+}
+
+func fetchAdvisoriesPages(ctx context.Context, h *HTTP, since time.Time, cwes []string, pages int) ([]ghGlobalAdvisory, error) {
 	v := url.Values{}
 	v.Set("type", "reviewed")
 	v.Set("published", ">="+since.UTC().Format("2006-01-02"))
@@ -126,7 +130,7 @@ func fetchAdvisories(ctx context.Context, h *HTTP, since time.Time, cwes []strin
 	v.Set("per_page", "100")
 	next := "https://api.github.com/advisories?" + v.Encode()
 	var all []ghGlobalAdvisory
-	for page := 0; next != "" && page < 10; page++ {
+	for page := 0; next != "" && page < pages; page++ {
 		resp, err := h.Do(ctx, "GET", next, nil, "")
 		if err != nil {
 			return all, err
@@ -250,6 +254,21 @@ func (a *App) stageFeed(ctx context.Context, h *HTTP, s Settings) (keys []string
 		seen[it.GHSA] = true
 	}
 	picks, skipped := feedPicks(advs, cweClass, seen)
+	// every advisory with a fix also becomes a bench case (plan 17), hunted or not
+	benchSkipped := a.benchSkipped()
+	benchAdded := 0
+	for _, adv := range advs {
+		if ctx.Err() != nil {
+			return
+		}
+		if a.addBenchCase(ctx, h, adv, benchSkipped) {
+			benchAdded++
+		}
+	}
+	a.saveBenchSkipped(benchSkipped)
+	if benchAdded > 0 {
+		a.logf("[feed] %d new bench cases", benchAdded)
+	}
 	now := time.Now()
 	record := func(it FeedItem) {
 		it.Checked = now

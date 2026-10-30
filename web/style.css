@@ -188,3 +188,9 @@ details.lang summary { cursor: pointer; font-weight: 600; }
   .top { flex-wrap: wrap; }
   .runbox { order: 3; flex-basis: 100%; }
 }
+
+.tablewrap { overflow-x: auto; }
+table.bench { border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+table.bench th, table.bench td { text-align: left; padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.bench tr.muted td { color: var(--muted); }
+.benchlist li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }

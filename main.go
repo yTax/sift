@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net"
@@ -28,6 +29,8 @@ func main() {
 	addr := flag.String("addr", "127.0.0.1:7777", "listen address (keep it on localhost)")
 	dir := flag.String("dir", "", "base folder holding dorks/, sinks/ and data/ (default: current folder if it has dorks/, else the executable's folder)")
 	noBrowser := flag.Bool("no-browser", false, "don't open the browser on start")
+	bench := flag.Bool("bench", false, "score the checkers against the saved advisory cases (data/bench) and exit")
+	benchCollect := flag.Int("bench-collect", 0, "first add the advisories of the last N days to the bench (needs a token)")
 	allowHost := flag.String("allow-host", "", "extra host names/IPs the UI may be reached on, comma-separated (e.g. your Tailscale IP); sift has no login, so only use addresses on a private network")
 	flag.Parse()
 
@@ -38,6 +41,19 @@ func main() {
 	app, err := NewApp(base)
 	if err != nil {
 		log.Fatalf("startup failed: %v", err)
+	}
+	if *bench || *benchCollect > 0 {
+		if *benchCollect > 0 {
+			if _, err := app.BenchCollect(context.Background(), *benchCollect, 5000); err != nil {
+				log.Fatalf("bench: %v", err)
+			}
+		}
+		rep, err := app.RunBench()
+		if err != nil {
+			log.Fatalf("bench: %v", err)
+		}
+		fmt.Print(FormatBench(rep))
+		return
 	}
 	go app.feedLoop(context.Background())
 

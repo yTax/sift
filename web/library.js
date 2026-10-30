@@ -75,6 +75,7 @@ async function openLibrary() {
   fillView(view, 
     h("p", { class: "muted" }, "Built-in files ship with sift and update with it. Saving one makes your own copy in ",
       h("span", { class: "mono" }, base + "/<kind>/"), ", which replaces it until you reset it. You can also drop .yaml files into those folders by hand."),
+    benchCard(),
     Object.entries(KINDS).map(([kind, k]) => h("section", { class: "card" },
       h("div", { class: "libhead" },
         h("h2", null, k.title),
