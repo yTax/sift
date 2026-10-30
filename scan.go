@@ -75,7 +75,10 @@ type scanOpts struct {
 
 // scanEngine goes up whenever the scanner, sink profiles or checkers change what a scan finds,
 // so the next run rescans repos whose stored scan is older even if their code hasn't moved.
-const scanEngine = 5
+const scanEngine = 6
+
+// maxLibFindingsPerRepo caps library-mode findings, apart from the others (maxFindingsPerRepo).
+const maxLibFindingsPerRepo = 25
 
 const (
 	maxSinkHitsKept    = 250
@@ -140,6 +143,8 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 	res := &ScanResult{At: time.Now(), ByClass: map[string]int{}, Engine: scanEngine}
 	var sinks, surface, auth []Hit
 	var findings []Finding
+	libs := libraryLangs(zr.File, opts.StripPrefix)
+	nReal, nLib := 0, 0
 
 	for _, f := range zr.File {
 		if f.FileInfo().IsDir() {
@@ -178,8 +183,20 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 		res.Files++
 		res.Bytes += int64(len(b))
 
-		if len(opts.Checkers) > 0 && len(findings) < maxFindingsPerRepo {
-			findings = append(findings, runCheckers(name, b, opts.Checkers)...)
+		if len(opts.Checkers) > 0 && (nReal < maxFindingsPerRepo || nLib < maxLibFindingsPerRepo) {
+			// library findings have their own cap, so a package's many API functions can't
+			// crowd out what its handlers do
+			for _, fd := range runCheckersLib(name, b, opts.Checkers, libs[checkerLangFor(name)]) {
+				switch {
+				case fd.Confidence == "low" && nLib < maxLibFindingsPerRepo:
+					nLib++
+				case fd.Confidence != "low" && nReal < maxFindingsPerRepo:
+					nReal++
+				default:
+					continue
+				}
+				findings = append(findings, fd)
+			}
 		}
 		fb := fileBytes{b: b, lower: asciiLower(b), starts: lineStartsBytes(b)}
 		for _, p := range profs {
@@ -191,9 +208,6 @@ func scanZip(zipPath string, opts scanOpts) (*ScanResult, error) {
 
 	res.PairedFiles, res.PairedWeight, res.HotFiles = pairHits(append(sinks, surface...))
 	sort.SliceStable(findings, func(i, j int) bool { return findings[i].Weight > findings[j].Weight })
-	if len(findings) > maxFindingsPerRepo {
-		findings = findings[:maxFindingsPerRepo]
-	}
 	res.FindingsWeight = findingsWeight(findings)
 	res.Findings = findings
 	sort.SliceStable(sinks, func(i, j int) bool { return sinks[i].Weight > sinks[j].Weight })

@@ -1,0 +1,34 @@
+id: template-from-input
+class: ssti
+weight: 4
+message: Handler input becomes the source of a server-side template, which can run code (template injection)
+
+# arg: first: the template source is the first argument; input passed as render variables
+# (Template("Hi {{ name }}").render(name=x)) is what templates are for.
+langs:
+  python:
+    arg: first
+    guards_anywhere: true
+    sinks:
+      - '\b(jinja2\.)?Template\(|\.from_string\(|\brender_template_string\(|\bmako\.template\.Template\(|\bTemplate\(\s*text\s*='
+    guards:
+      - 'SandboxedEnvironment|ImmutableSandboxedEnvironment|jinja2\.sandbox'
+  js-ts:
+    arg: first
+    sinks:
+      - '\bejs\.(render|compile)\(|\bnunjucks\.(renderString|compile)\(|\b[Hh]andlebars\.(compile|precompile)\(|\bpug\.(render|compile)\('
+      - '(^|[^.\w])_\.template\(|\blodash\.template\(|\bdoT\.template\(|\bLiquid\(\)\.parseAndRender\(|\bengine\.parseAndRender\('
+    guards:
+      - '\bisolated-vm\b|\bvm2\b'
+  go:
+    arg: first
+    sinks:
+      - '\btemplate\.New\([^)]*\)\.(Funcs\([^)]*\)\.)?Parse\(|\btemplate\.Must\(template\.New\([^)]*\)\.Parse\('
+  php:
+    arg: first
+    sinks:
+      - '->createTemplate\(|\bTwig\\Environment\(\s*new\s+\\?Twig\\Loader\\ArrayLoader'
+      - '->fetch\(\s*[''"](string|eval):'
+      - '->(render|display)\(\s*[''"](string|eval):'
+    guards:
+      - 'SandboxExtension|SecurityPolicy'

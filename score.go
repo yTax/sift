@@ -37,7 +37,9 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 		parts["surface"] = logScale(float64(r.Scan.SurfaceHits), 450)
 		parts["auth"] = logScale(float64(r.Scan.AuthHits), 450)
 		parts["pairing"] = logScale(r.Scan.PairedWeight, 150)
-		parts["findings"] = logScale(r.Scan.FindingsWeight, 20) // one high-confidence shell finding is ~4
+		// from the findings themselves, so a change to how they count applies without a rescan;
+		// one high-confidence shell finding is ~4
+		parts["findings"] = logScale(findingsWeight(r.Scan.Findings), 20)
 	}
 	e := r.Enriched
 	if e != nil {

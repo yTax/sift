@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -85,22 +86,39 @@ func TestSemgrepConfirmsCheckerFindings(t *testing.T) {
 		t.Skip("semgrep not installed")
 	}
 	checkers, _ := loadCheckers("")
+	// only classes the Semgrep rules cover; their sources are handler inputs, so library-mode
+	// findings (a package's caller's arguments) have no Semgrep equivalent either
+	ruled := map[string]bool{}
+	for _, f := range overlay("", "semgrep") {
+		for _, m := range regexp.MustCompile(`class:\s*([\w-]+)`).FindAllStringSubmatch(string(f.Data), -1) {
+			ruled[m[1]] = true
+		}
+	}
+	class := map[string]string{}
+	for _, c := range checkers {
+		class[c.ID] = c.Class
+	}
 	dir := t.TempDir()
 	type want struct{ file, checker string }
 	var cases []want
 	var all []Finding
 	for i, c := range checkerCases {
-		if !c.want || c.checker == "prefix-containment" || c.checker == wpAuthzChecker {
+		if !c.want || c.checker == "prefix-containment" || !ruled[class[c.checker]] {
 			continue // no Semgrep equivalent for these
 		}
 		name := filepath.Base(c.file)
 		name = strings.TrimSuffix(name, filepath.Ext(name)) + "_" + string(rune('a'+i%26)) + string(rune('a'+i/26)) + filepath.Ext(name)
-		os.WriteFile(filepath.Join(dir, name), []byte(c.src), 0o600)
+		var mine []Finding
 		for _, f := range runCheckers(name, []byte(c.src), checkers) {
-			if f.Checker == c.checker {
-				all = append(all, f)
+			if f.Checker == c.checker && f.Confidence != "low" {
+				mine = append(mine, f)
 			}
 		}
+		if len(mine) == 0 {
+			continue
+		}
+		os.WriteFile(filepath.Join(dir, name), []byte(c.src), 0o600)
+		all = append(all, mine...)
 		cases = append(cases, want{name, c.checker})
 	}
 	rulesDir := t.TempDir()

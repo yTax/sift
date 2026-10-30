@@ -18,6 +18,8 @@ langs:
       - '\b(validate|sanitize|check|verify|assert|ensure|resolveSafe|safe)\w*(Path|File|Dir)\w*\('
       - 'includes\(\s*[''"`]\.\.[''"`]\s*\)'
       - 'allowedDirectories|allowedPaths|allowedRoots'
+      - '/\^[^/\n]*\$/[a-z]*\.test\('
+      - '\b_?[A-Z][A-Z0-9_]{2,}\.(includes|has)\('
   python:
     arg: first
     sinks:
@@ -34,6 +36,9 @@ langs:
       - '[''"]\.\.[''"]\s+in\b'
       - '\b(validate|sanitize|check|verify|ensure|safe|resolve_safe)_?\w*(path|file|dir)\w*\('
       - 'allowed_(dirs|directories|paths|roots)'
+      - '\.fullmatch\(|\b_?[A-Z][A-Z0-9_]*\.match\('
+      - '\bnot\s+in\s+_?[A-Z][A-Z0-9_]{2,}\b|\bin\s+_?[A-Z][A-Z0-9_]{2,}\s*:'
+      - 'filter\s*=\s*[''"](data|tar)[''"]|data_filter'
   go:
     arg: first
     sinks:
@@ -46,6 +51,7 @@ langs:
       - 'os\.OpenRoot|\.OpenRoot\(|securejoin'
       - 'EvalSymlinks'
       - '\b(validate|sanitize|check|verify|ensure|safe)\w*(Path|File|Dir)\w*\('
+      - 'securejoin|SecureJoin|\.MatchString\('
   php:
     sinks:
       # not ->require( or ::rename(: methods that happen to share the name

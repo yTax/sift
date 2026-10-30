@@ -15,6 +15,8 @@ langs:
       - '\bshell\.exec\('
     guards:
       - 'shell-quote|shellQuote|shellescape|escapeShellArg|quote\(\s*\['
+      - '/\^[^/\n]*\$/[a-z]*\.test\('
+      - '\b_?[A-Z][A-Z0-9_]{2,}\.(includes|has)\('
       - '\b(allowedCommands|ALLOWED_COMMANDS|commandAllowlist|allowlist|whitelist)\b'
   python:
     arg: first
@@ -25,6 +27,8 @@ langs:
       - '\bcommands\.getoutput\('
     guards:
       - 'shlex\.quote\('
+      - '\.fullmatch\(|\b_?[A-Z][A-Z0-9_]*\.match\('
+      - '\bnot\s+in\s+_?[A-Z][A-Z0-9_]{2,}\b|\bin\s+_?[A-Z][A-Z0-9_]{2,}\s*:'
       - '\b(ALLOWED_COMMANDS|allowed_commands|allowlist|whitelist)\b'
   go:
     sinks:

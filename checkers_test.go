@@ -462,6 +462,100 @@ def stream(fmt):
         return Response(status_code=499)
     log(f"<b>{fmt}</b>")
 `, false},
+
+	// --- same-file helpers (layer 3) ---
+	{"tool-path-to-fs", "argument goes through a same-file containment helper", "main.py", `
+def _safe_resource_file(base_path: str, filename: str) -> Path:
+    root = Path(base_path).resolve()
+    path = (root / filename).resolve()
+    path.relative_to(root)
+    return path
+
+@app.get("/temp/{filename}")
+def temp_file(filename: str):
+    return FileResponse(_safe_resource_file(settings.TEMP_PATH, filename))
+`, false},
+	{"tool-path-to-fs", "variable assigned from a same-file containment helper", "main.py", `
+def _safe_store_path(resource_path: str) -> Path:
+    root = Path(STORE).resolve()
+    p = (root / resource_path.lstrip("/")).resolve()
+    p.relative_to(root)
+    return p
+
+@app.get("/store/{resource_path:path}")
+def store(resource_path: str):
+    path = _safe_store_path(resource_path)
+    return FileResponse(path)
+`, false},
+	{"shell-from-input", "python tool calls a same-file shell wrapper", "server.py", `
+def run(cmd):
+    return subprocess.run(cmd, shell=True, capture_output=True)
+
+@mcp.tool()
+def git_log(repo: str):
+    return run(f"git -C {repo} log")
+`, true},
+	{"shell-from-input", "wrapper that quotes its argument", "server.py", `
+def run(cmd):
+    return subprocess.run(shlex.quote(cmd), shell=True)
+
+@mcp.tool()
+def git_log(repo: str):
+    return run(repo)
+`, false},
+	{"shell-from-input", "ts tool calls a same-file execSync wrapper", "src/index.ts", `
+function sh(command: string) {
+  return execSync(command, { encoding: "utf8" });
+}
+
+server.tool("git_status", "status", { repo: z.string() }, async ({ repo }) => {
+  const out = sh(` + "`git -C ${repo} status`" + `);
+  return { content: [{ type: "text", text: out }] };
+});`, true},
+	{"sql-from-input", "f-string query handed to a same-file query helper", "db.py", `
+def query(sql, params=()):
+    cur = db.cursor()
+    cur.execute(sql, params)
+    return cur.fetchall()
+
+@app.get("/users")
+def users(name: str):
+    return query(f"SELECT * FROM users WHERE name = '{name}'")
+`, true},
+	{"sql-from-input", "bound parameter handed to a same-file query helper", "db.py", `
+def query(sql, params=()):
+    cur = db.cursor()
+    cur.execute(sql, params)
+    return cur.fetchall()
+
+@app.get("/users")
+def users(name: str):
+    return query("SELECT * FROM users WHERE name = ?", (name,))
+`, false},
+	{"xss-from-input", "message goes through a same-file escaping helper", "auth.py", `
+def _error_page(msg):
+    return "<html><body>" + html.escape(msg) + "</body></html>"
+
+@app.get("/fail")
+def fail(error: str):
+    return HTMLResponse(_error_page(f"Login failed: {error}"))
+`, false},
+
+	// --- response types ---
+	{"xss-from-input", "werkzeug Response is text/plain", "web.py", `
+from werkzeug.wrappers import Response
+
+@app.route("/hello/<name>")
+def hello(name):
+    return Response(f"<b>hello {name}</b>")
+`, false},
+	{"xss-from-input", "werkzeug Response sent as text/html", "web.py", `
+from werkzeug.wrappers import Response
+
+@app.route("/hello/<name>")
+def hello(name):
+    return Response(f"<b>hello {name}</b>", mimetype="text/html")
+`, true},
 	{"fetch-from-input", "go request context is not the url", "gateway.go", `
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	probe, err := http.NewRequestWithContext(r.Context(), http.MethodGet, collectorHealthURL, nil)
@@ -557,7 +651,7 @@ func TestCheckers(t *testing.T) {
 		ids[c.ID] = true
 	}
 	for _, c := range checkerCases {
-		if !ids[c.checker] && c.checker != wpAuthzChecker {
+		if !ids[c.checker] && c.checker != wpAuthzChecker && c.checker != routeAuthChecker {
 			t.Fatalf("no checker %q", c.checker)
 		}
 		got := false

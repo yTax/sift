@@ -48,6 +48,8 @@ When both layers flag the same line, mark the finding `confirmed by semgrep` and
 
 ### Layer 3 — same-file wrappers and response types
 
+**Status: built** (`checkers_flow.go`, `checkers_lib.go`), measured on the bench (plan 17). Cleaning helpers silence a sink when the argument passes through them; sink wrappers become sinks at their call sites (one level, same file); a bare Python `Response` only counts as HTML when it isn't Werkzeug's or Starlette's or says `text/html`. Added from the bench: library mode (exported functions' parameters are input, low confidence) and input-aware guards. Same-package wrappers across files are not built yet.
+
 Found by reading real results: the checker only sees one function, so it misses helpers in both directions.
 - **Escaping helpers** (false positives): `HTMLResponse(_error_page(f"...{error}"))` was flagged although `_error_page` runs `html.escape` on its argument. Build a per-file summary of each function: does it pass parameter N through a known cleaner (escape, basename, quote, int, prepare)? A call to such a helper counts as cleaning its argument.
 - **Sink wrappers** (missed bugs): `def run(cmd): subprocess.run(cmd, shell=True)` called from a handler with input. The same summary records "parameter N reaches sink X", and a call to the wrapper with input becomes a finding at the call site (one level deep, same file first, then same package by import).

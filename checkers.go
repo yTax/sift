@@ -37,13 +37,20 @@ type checkerLang struct {
 	Interpolated bool `yaml:"interpolated"`
 	// LineGuards silence a finding only when they're on the sink line itself (esc_html(...), prepare(...)).
 	LineGuards []string `yaml:"line_guards"`
+	// FileRequires: the file must contain one of these for the language to be checked at all
+	// (redirect() imported from a framework, not an app's own helper).
+	FileRequires []string `yaml:"file_requires"`
+	// GuardsAnywhere counts a guard anywhere before the sink. By default a guard only counts on
+	// a line that touches the input, since a validator run on some other value doesn't protect
+	// this call; configuration guards (a sandboxed template environment) touch nothing.
+	GuardsAnywhere bool `yaml:"guards_anywhere"`
 	// Arg narrows where input has to appear: "first" = the first argument (the path of a file
 	// call, not the data written), "url-start" = what decides the host of the first argument,
 	// so input that only fills in a path on a fixed host isn't called SSRF. A sink regex with
 	// a group named arg (e.g. the receiver of p.write_text()) uses that group's text instead.
 	Arg string `yaml:"arg"`
 
-	sinks, guards, requires, lineGuards []*regexp.Regexp
+	sinks, guards, requires, lineGuards, fileRequires []*regexp.Regexp
 	any                                 *regexp.Regexp // all sinks in one, to skip files that have none
 	anyLits                             []string       // literals one of which every sink needs; nil = none known
 }
@@ -64,7 +71,7 @@ type Finding struct {
 
 // Build, CI and dev scripts run on the developer's machine with their own arguments; nothing
 // there is reachable by an attacker, so checkers skip them.
-var checkerSkipPath = regexp.MustCompile(`(^|/)(scripts?|ci|hack|loadtest|load-tests?|benchmarks?|bench|e2e|smoke|harness|devtools|evals?|fixtures?|__fixtures__|__mocks__|testdata|\.github|\.husky)/|\.config\.(js|mjs|cjs|ts)$`)
+var checkerSkipPath = regexp.MustCompile(`(^|/)(development|mocks?|fake-[\w-]+|testkit|scripts?|ci|hack|loadtest|load-tests?|benchmarks?|bench|e2e|smoke|harness|devtools|evals?|fixtures?|__fixtures__|__mocks__|testdata|\.github|\.husky)/|\.config\.(js|mjs|cjs|ts)$`)
 
 const (
 	maxFindingsPerRepo = 100
@@ -98,9 +105,11 @@ func parseCheckers(files []libFile) ([]*Checker, []LoadError) {
 			if l.sinks, err = compileAll(l.Sinks); err == nil {
 				if l.guards, err = compileAll(l.Guards); err == nil {
 					if l.requires, err = compileAll(l.Requires); err == nil {
-						if l.lineGuards, err = compileAll(l.LineGuards); err == nil && len(l.Sinks) > 0 {
-							l.any, err = regexp.Compile("(?m)(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
-							l.anyLits = requiredLits("(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
+						if l.fileRequires, err = compileAll(l.FileRequires); err == nil {
+							if l.lineGuards, err = compileAll(l.LineGuards); err == nil && len(l.Sinks) > 0 {
+								l.any, err = regexp.Compile("(?m)(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
+								l.anyLits = requiredLits("(?:" + strings.Join(l.Sinks, ")|(?:") + ")")
+							}
 						}
 					}
 				}
@@ -163,6 +172,10 @@ type fnSpan struct {
 	head       int // line index of the signature
 	start, end int // body lines, inclusive
 	inputs     []string
+	params     []string // every parameter in order, for calls to it (see orderedParams)
+	// libInputs are the data parameters of an exported function that isn't a handler: in a
+	// library the caller's arguments are the input (library mode, checkers_lib.go)
+	libInputs []string
 }
 
 var (
@@ -327,6 +340,7 @@ func paramNames(params string) []string {
 func braceFunctions(src string, starts []int, lang string) []fnSpan {
 	var out []fnSpan
 	seen := map[int]bool{}
+	exports := jsExports(src, lang)
 	addSpan := func(name string, headOff, paramsStart, paramsEnd int) {
 		open := strings.IndexByte(src[paramsEnd:min(len(src), paramsEnd+300)], '{')
 		if open < 0 {
@@ -339,7 +353,8 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 		seen[open] = true
 		end := matchBrace(src, open)
 		params := src[paramsStart:paramsEnd]
-		f := fnSpan{name: name, head: lineOf(starts, headOff), start: lineOf(starts, open), end: lineOf(starts, end)}
+		f := fnSpan{name: name, head: lineOf(starts, headOff), start: lineOf(starts, open), end: lineOf(starts, end),
+			params: orderedParams(params, lang)}
 		switch lang {
 		case "js-ts":
 			names := paramNames(params)
@@ -380,6 +395,9 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 					f.inputs = append(f.inputs, n)
 				}
 			}
+		}
+		if len(f.inputs) == 0 && lang != "php" && exports.exported(src, lang, name, headOff) {
+			f.libInputs = libraryParams(params, lang)
 		}
 		out = append(out, f)
 	}
@@ -466,7 +484,8 @@ func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 			}
 			end = j
 		}
-		f := fnSpan{name: name, head: head, start: sigEnd, end: end}
+		f := fnSpan{name: name, head: head, start: sigEnd, end: end, params: orderedParams(params, "python")}
+		library := pyPublic(lines, head, indent, name)
 		registered := false
 		safe := pyTypedSafe(params)
 		for j := head - 1; j >= 0 && strings.HasPrefix(strings.TrimSpace(lines[j]), "@"); j-- {
@@ -485,6 +504,13 @@ func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 				f.inputs = append(f.inputs, n)
 			}
 		}
+		if library && !registered && len(f.inputs) == 0 {
+			for _, n := range libraryParams(params, "python") {
+				if !safe[n] {
+					f.libInputs = append(f.libInputs, n)
+				}
+			}
+		}
 		out = append(out, f)
 	}
 	return out
@@ -499,7 +525,7 @@ var (
 			regexp.MustCompile(`(?:const|let|var)\s*\[([^\]]*)\]\s*=\s*(.+)`),
 			regexp.MustCompile(`(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*(.+)`),
 			regexp.MustCompile(`^\s*([A-Za-z_$][\w$]*)\s*\+?=\s*([^=].*)`),
-			regexp.MustCompile(`for\s*\(\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s+of\s+(.+)\)`),
+			regexp.MustCompile(`for\s*\(\s*(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s+(?:of|in)\s+(.+)\)`),
 		},
 		"python": {
 			regexp.MustCompile(`^\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*(?::[^=]+)?\+?=\s*([^=].*)`),
@@ -529,8 +555,35 @@ func containsName(s string, names map[string]bool) string {
 	return ""
 }
 
-// runCheckers returns the findings for one file.
+// runCheckers returns the findings for one file, the strongest few.
 func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
+	return runCheckersLib(name, b, checkers, true)
+}
+
+// runCheckersLib is runCheckers with library mode (exported functions' parameters as input)
+// on only when the file belongs to a published library.
+func runCheckersLib(name string, b []byte, checkers []*Checker, library bool) []Finding {
+	out := checkFileLib(name, b, checkers, library)
+	if len(out) > maxFindingsPerFile {
+		out = out[:maxFindingsPerFile]
+	}
+	return out
+}
+
+// fileFunctions splits a file into functions.
+func fileFunctions(src, lang string, lines []string, starts []int) []fnSpan {
+	if lang == "python" {
+		return pythonFunctions(src, lines, starts)
+	}
+	return braceFunctions(src, starts, lang)
+}
+
+// checkFile returns every finding for one file, strongest first, reading it as library code.
+func checkFile(name string, b []byte, checkers []*Checker) []Finding {
+	return checkFileLib(name, b, checkers, true)
+}
+
+func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Finding {
 	lang := checkerLangFor(name)
 	if lang == "" || len(checkers) == 0 || checkerSkipPath.MatchString(name) {
 		return nil
@@ -543,25 +596,25 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 		if l == nil || l.any == nil || l.anyLits != nil && !containsAnyLit(lowerSrc, l.anyLits) {
 			continue
 		}
-		if l.any.MatchString(src) {
+		if l.any.MatchString(src) && (len(l.fileRequires) == 0 || anyMatch(l.fileRequires, src)) {
 			active = append(active, c)
 		}
 	}
 	wp := lang == "php" && (strings.Contains(src, "wp_ajax_") || strings.Contains(src, "register_rest_route"))
-	if len(active) == 0 && !wp {
+	routes := (lang == "js-ts" || lang == "python") && routeHint.MatchString(src)
+	if len(active) == 0 && !wp && !routes {
 		return nil
 	}
 	lines := strings.Split(src, "\n")
 	starts := lineStarts(src)
 	inBlock := blockLines(lines, lang)
-	var fns []fnSpan
-	if lang == "python" {
-		fns = pythonFunctions(src, lines, starts)
-	} else {
-		fns = braceFunctions(src, starts, lang)
+	fns := fileFunctions(src, lang, lines, starts)
+	fc := &fileCtx{lang: lang, lines: lines, inBlock: inBlock, source: checkerSources[lang], interp: interpCache{},
+		plainResponse: checkerHelpers && lang == "python" && plainResponseRe.MatchString(src)}
+	var helpers map[string]*helperSet
+	if checkerHelpers {
+		helpers = fc.helpers(fns, active)
 	}
-	source := checkerSources[lang]
-	interp := interpCache{}
 	type key struct {
 		id   string
 		line int
@@ -572,140 +625,55 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 		if f.end < f.start || f.end >= len(lines) {
 			continue
 		}
-		direct := map[string]bool{}
-		for _, n := range f.inputs {
-			direct[n] = true
+		inputs, libFn := f.inputs, false
+		if len(inputs) == 0 && len(f.libInputs) > 0 && checkerLibrary && library {
+			inputs, libFn = f.libInputs, true
 		}
-		// tainted names: inputs plus whatever is assigned from them (two passes so order doesn't matter much)
-		tainted := map[string]bool{}
-		built := map[string]bool{} // strings with input pasted into them (a query or HTML being assembled)
-		for n := range direct {
-			tainted[n] = true
-		}
-		body := strings.Join(lines[f.start:f.end+1], "\n")
-		// most functions aren't handlers and read no request data: only no-input checkers apply
-		hasInput := len(direct) > 0 || source != nil && source.MatchString(body)
-		for pass := 0; hasInput && pass < 2; pass++ {
-			for i := f.start; i <= f.end; i++ {
-				for _, re := range assignRes[lang] {
-					m := re.FindStringSubmatch(lines[i])
-					if m == nil {
-						continue
-					}
-					rhs := m[2]
-					hasSource := source != nil && source.MatchString(rhs)
-					n := containsName(rhs, tainted)
-					if n == "" && !hasSource {
-						continue
-					}
-					if cl := checkerCleaners[lang]; cl != nil && cl.MatchString(rhs) {
-						break
-					}
-					isBuilt := hasSource && interp.interpolated(lang, rhs, source.FindString(rhs)) ||
-						n != "" && (built[n] || interp.interpolated(lang, rhs, n))
-					for _, name := range paramNames(m[1]) {
-						if name != "_" && name != "err" {
-							tainted[name] = true
-							if isBuilt {
-								built[name] = true
-							}
-						}
-					}
-					break
-				}
-			}
-		}
+		t := fc.taint(f, inputs)
 		for _, c := range active {
 			l := c.Langs[lang]
-			if !hasInput && !l.NoInput || !l.any.MatchString(body) || len(l.requires) > 0 && !anyMatch(l.requires, body) {
+			hs := helpers[c.ID]
+			if !t.hasInput && !l.NoInput || !l.any.MatchString(t.body) && !hs.calledIn(t.body) {
 				continue
 			}
-			guardAt := -2 // first line with a guard, looked up on the first sink hit (-1: none)
-			for i := f.start; i <= f.end; i++ {
-				line := lines[i]
-				if commentLine(line, lang) || inBlock[i] {
+			reqOK := len(l.requires) == 0 || anyMatch(l.requires, t.body)
+			for _, hit := range fc.scan(f, c, t, hs, false) {
+				if !reqOK && (hit.w == nil || !hit.w.req) {
 					continue
 				}
-				var loc []int
-				for _, re := range l.sinks {
-					if loc = re.FindStringSubmatchIndex(line); loc != nil {
-						if g := re.SubexpIndex("arg"); g > 0 && loc[2*g] >= 0 {
-							loc = []int{loc[0], loc[1], loc[2*g], loc[2*g+1]}
-						} else {
-							loc = loc[:2]
-						}
-						break
-					}
-				}
-				if loc == nil || i == f.head || defLine.MatchString(line) {
-					continue // a method named exec() is not a call to exec()
-				}
-				if !inCode(line, loc[0], lang) {
-					continue // quoted in a log message or a trailing comment
-				}
-				via, conf := "", "medium"
-				if !l.NoInput {
-					args := line[loc[0]:]
-					if i+1 <= f.end && !callCloses(args) {
-						args += " " + lines[i+1] // the call wraps
-					}
-					if args = narrowArg(l, line, args, loc); args == "" {
-						continue
-					}
-					if lang == "php" {
-						args = phpTestOnly.ReplaceAllString(args, "") // input only compared, never output
-					}
-					if l.Interpolated {
-						via, conf = interpolatedInput(interp, lang, args, source, direct, tainted, built)
-					} else if source != nil && source.MatchString(args) {
-						via, conf = source.FindString(args), "high"
-					} else if n := containsName(args, direct); n != "" {
-						via, conf = n, "high"
-					} else if n := containsName(args, tainted); n != "" {
-						via = n
-					}
-					if via == "" {
-						continue
-					}
-				}
-				if anyMatch(l.lineGuards, line) {
-					continue
-				}
-				if guardAt == -2 {
-					guardAt = -1
-					for j := f.start; j <= f.end && len(l.guards) > 0; j++ {
-						if anyMatch(l.guards, lines[j]) {
-							guardAt = j
-							break
-						}
-					}
-				}
-				// a guard before the sink protects it; when the line is the bug itself (a prefix
-				// check), a fix may as well follow it: `if real != home and not
-				// real.startswith(home + os.sep)` on the next line
-				if guardAt >= 0 && (guardAt <= i || l.NoInput) {
-					continue
-				}
-				k := key{c.ID, i}
+				k := key{c.ID, hit.line}
 				if found[k] {
 					continue
 				}
 				found[k] = true
-				snip := strings.TrimSpace(line)
+				snip := strings.TrimSpace(lines[hit.line])
 				if len(snip) > 220 {
 					snip = snip[:220] + "…"
 				}
-				w := c.Weight
-				if conf == "medium" {
-					w *= 0.6
+				if libFn && !(fc.source != nil && fc.source.MatchString(hit.via)) {
+					hit.conf = "low" // a library's caller may pass anything, or only its own constants
 				}
-				out = append(out, Finding{Checker: c.ID, Class: c.Class, Path: name, Line: i + 1, Func: f.name, Via: via,
-					Message: c.Message, Snippet: snip, Confidence: conf, Weight: w})
+				w := c.Weight
+				switch hit.conf {
+				case "medium":
+					w *= 0.6
+				case "low":
+					w *= 0.25
+				}
+				msg := c.Message
+				if hit.w != nil {
+					msg += fmt.Sprintf(" (through %s(), which reaches it on line %d)", hit.w.fn, hit.w.sinkLine+1)
+				}
+				out = append(out, Finding{Checker: c.ID, Class: c.Class, Path: name, Line: hit.line + 1, Func: f.name, Via: hit.via,
+					Message: msg, Snippet: snip, Confidence: hit.conf, Weight: w})
 			}
 		}
 	}
 	if wp {
 		out = append(out, wpAuthzFindings(name, src, lines, starts, fns)...)
+	}
+	if routes {
+		out = append(out, routeAuthGaps(name, src, lines, lang, fns)...)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Weight != out[j].Weight {
@@ -713,9 +681,6 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 		}
 		return out[i].Line < out[j].Line
 	})
-	if len(out) > maxFindingsPerFile {
-		out = out[:maxFindingsPerFile]
-	}
 	return out
 }
 
@@ -961,12 +926,18 @@ func skipString(s string, i int) int {
 var (
 	urlCall     = regexp.MustCompile(`^(new\s+)?([\w$.]+)\(`)
 	urlReceiver = regexp.MustCompile(`^([\w$.]+)\.(String|toString|strip|trim)\(\)$`)
+	urlLookup = regexp.MustCompile(`^([\w$.]+)\[.*\]$`)
+	// accessors return a request value as is: searchParams.get, request.args.get, c.Query
+	urlAccessor = regexp.MustCompile(`(^|\.)(get|getlist|get_json|param|query|Query|Param|FormValue|PostFormValue|DefaultQuery)$`)
 	passThrough = map[string]bool{"URL": true, "String": true, "str": true, "encodeURI": true, "urljoin": true, "parse.urljoin": true, "urllib.parse.urljoin": true, "url.Parse": true}
 )
 
 // urlStart keeps only the part of a URL argument that decides scheme and host.
 func urlStart(first string) string {
 	first = strings.TrimSpace(strings.TrimPrefix(first, "await "))
+	if m := urlLookup.FindStringSubmatch(first); m != nil {
+		first = m[1] // moved[section]: a lookup table picks the URL, so the table is what counts
+	}
 	for range 3 {
 		if m := urlReceiver.FindStringSubmatch(first); m != nil {
 			first = m[1]
@@ -975,6 +946,9 @@ func urlStart(first string) string {
 		m := urlCall.FindStringSubmatch(first)
 		if m == nil {
 			break
+		}
+		if urlAccessor.MatchString(m[2]) {
+			return first // request.args.get("next"): reading the input, not building a URL
 		}
 		if !passThrough[m[2]] {
 			return ""
@@ -997,6 +971,9 @@ func urlStart(first string) string {
 	first = strings.TrimSpace(first)
 	if first == "" || strings.ToUpper(first) == first { // BASE_URL, API_ROOT: a constant host
 		return ""
+	}
+	if strings.HasPrefix(first, "request.url") || strings.HasPrefix(first, "request.base_url") {
+		return "" // the current page
 	}
 	return first
 }

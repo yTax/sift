@@ -300,6 +300,10 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		selected[c.ID] = true
 		catIDs = append(catIDs, c.ID)
 	}
+	if want[variantScene] { // variant candidates have no dork file, but can be rescanned like a scene
+		selected[variantScene] = true
+		catIDs = append(catIDs, variantScene)
+	}
 	var stageList []string
 	if stages["scan"] && s.SemgrepAuto && len(opts.Stages) == 0 { // a stage list you picked is kept as is
 		stages["taint"] = true
@@ -337,7 +341,7 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 		a.hub.Publish(Event{Type: "state", Msg: outcome})
 	}()
 
-	if len(cats) == 0 && !variant {
+	if len(cats) == 0 && !variant && !selected[variantScene] {
 		a.warnf("no categories selected — enable some on the Dorks page")
 		outcome = "nothing to do"
 		return

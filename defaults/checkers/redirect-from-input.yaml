@@ -1,0 +1,49 @@
+id: redirect-from-input
+class: open-redirect
+weight: 1.5
+message: Handler input decides where a redirect goes, with no check that it stays on this site (open redirect)
+
+# url-start: only input that decides the start of the URL (scheme and host) counts; a redirect
+# to "/account?tab=" + input stays on the site.
+langs:
+  js-ts:
+    arg: url-start
+    sinks:
+      - '\b(res|reply|ctx|response)\.redirect\(\s*(\d{3}\s*,\s*)?(?P<arg>[^,)]+)'
+      - '\b(router|navigate)\.(push|replace)\(|\bNextResponse\.redirect\('
+      - '\b(window\.)?location(\.href)?\s*=[^=]|\blocation\.(assign|replace)\('
+    guards:
+      - '\b(isSafe|safe|validate|sanitize|isValid|isLocal|isRelative|isInternal|isAllowed)\w*(Redirect|Url|URL|Return|Next|Path)\w*\('
+      - 'getSafeRedirect|safeRedirect|allowedRedirects|ALLOWED_REDIRECT|allowedOrigins'
+      - '\.origin\s*(===|!==)|\.startsWith\(\s*[''"`]/[''"`]\s*\)\s*&&\s*!|\.host(name)?\s*(===|!==)'
+  python:
+    arg: url-start
+    # a bare redirect() is the framework's only when imported from it; apps often have their
+    # own redirect helper that already checks the target
+    file_requires:
+      - '(?s)from\s+(flask|quart|sanic|django[\w.]*|werkzeug[\w.]*|starlette[\w.]*|fastapi[\w.]*)\s+import\s+(\([^)]*|[^\n]*)\b(redirect|RedirectResponse|HttpResponseRedirect|HttpResponsePermanentRedirect)\b'
+      - '\b(flask|shortcuts)\.redirect\('
+    sinks:
+      - '(^|[^.\w])redirect\(|\bRedirectResponse\(|\bHttpResponseRedirect\(|\bHttpResponsePermanentRedirect\('
+    guards:
+      - 'url_has_allowed_host_and_scheme|is_safe_url|is_safe_redirect|safe_redirect|allowed_hosts|ALLOWED_REDIRECT'
+      - 'urlparse\([^)]*\)\.(netloc|hostname)|urlsplit\([^)]*\)\.(netloc|hostname)|\.netloc\b'
+  go:
+    sinks:
+      # http.Redirect(w, r, url, code): the url is the third argument
+      - '\bhttp\.Redirect\([^,]+,[^,]+,\s*(?P<arg>[^,]+)'
+      - '\bc\.Redirect\(\s*[^,]+,\s*(?P<arg>[^)]+)'
+    guards:
+      - '\.Host\s*(==|!=)|\.IsAbs\(\)|strings\.HasPrefix\([^)]*"/"\)\s*&&'
+      # an http -> https redirect to the request's own host
+      - '"https?://"\s*\+\s*\w+\.Host\b|"https://%s'
+      - '\b(isSafe|safe|validate|isLocal|isRelative|isAllowed)\w*(Redirect|URL|Url)\w*\('
+  php:
+    sinks:
+      - '\bheader\(\s*[''"]Location:\s*[''"]?\s*\.'
+      - '\bheader\(\s*"Location:\s*\$'
+      - '(^|[^>:$\w])wp_redirect\(|->redirect\(|\bredirect\(\s*\$'
+    line_guards:
+      - '\bwp_safe_redirect\(|\bwp_validate_redirect\(|\besc_url_raw\(\s*admin_url'
+    guards:
+      - 'wp_validate_redirect|wp_safe_redirect|allowed_redirect_hosts|parse_url\([^)]*PHP_URL_HOST'

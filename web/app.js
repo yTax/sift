@@ -226,7 +226,7 @@ function findingsCard(repo) {
       return h("li", null,
         h("div", null,
           f.confirmed ? [h("span", { class: "chip good" }, "confirmed by Semgrep"), " "] : null,
-          h("span", { class: "chip " + (f.confidence === "high" ? "bad" : "warn") }, f.confidence), " ",
+          h("span", { class: "chip " + (f.confidence === "high" ? "bad" : f.confidence === "low" ? "" : "warn") }, f.confidence === "low" ? "library API" : f.confidence), " ",
           h("span", { class: "chip" }, f.class), " ",
           href ? ext(href, h("span", { class: "mono" }, loc)) : h("span", { class: "mono" }, loc),
           f.func ? h("span", { class: "muted" }, " in " + f.func + "()") : null),
@@ -418,7 +418,11 @@ async function loadState() {
   fill(fs, h("option", { value: "" }, "All scenes"));
   fs.append(h("option", { value: "variants" }, "Variant candidates"));
   fs.value = cur;
-  fill(document.getElementById("runscene"), h("option", { value: "" }, "Every enabled scene"));
+  const rs = document.getElementById("runscene");
+  const rcur = rs.value;
+  fill(rs, h("option", { value: "" }, "Every enabled scene"));
+  rs.append(h("option", { value: "variants" }, "Variant candidates"));
+  rs.value = rcur;
 }
 
 function listen() {

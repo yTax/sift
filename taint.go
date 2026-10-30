@@ -224,16 +224,23 @@ func confirmFindings(findings []Finding, results []semgrepResult) int {
 
 // findingsWeight sums finding weights; a Semgrep-confirmed finding counts half again.
 func findingsWeight(fs []Finding) float64 {
-	w := 0.0
+	w, lib := 0.0, 0.0
 	for _, f := range fs {
-		if f.Confirmed {
+		switch {
+		case f.Confirmed:
 			w += f.Weight * 1.5
-		} else {
+		case f.Confidence == "low":
+			lib += f.Weight
+		default:
 			w += f.Weight
 		}
 	}
-	return w
+	// library-mode findings count for about one medium finding at most: a package has many API
+	// functions, and which of them callers really feed untrusted data is unknown
+	return w + min(lib, maxLibFindingsWeight)
 }
+
+const maxLibFindingsWeight = 2.0
 
 // ---------- stage 4: taint ----------
 

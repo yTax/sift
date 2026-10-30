@@ -1,0 +1,22 @@
+id: proto-pollution
+class: prototype-pollution
+weight: 2.5
+message: A key from input writes into a nested object with no __proto__/constructor check (prototype pollution)
+
+# A flat obj[key] = value only reaches obj itself; pollution needs a second level, a dotted
+# path walked down (a.b.c), or a recursive merge, where "__proto__" lands on Object.prototype.
+# arg: the key; the value written doesn't matter.
+langs:
+  js-ts:
+    sinks:
+      # obj[key][k2] = value
+      - '[\w$\])]\s*\[\s*(?P<arg>[^\]\[=]+?)\s*\]\s*\[[^\]]+\]\s*=[^=>]'
+      # obj[key] = value, in a function that walks a path or merges recursively (requires)
+      - '[\w$\])]\s*\[\s*(?P<arg>[^\]\[=''"`]+?)\s*\]\s*=[^=>]'
+    requires:
+      - '\.split\(\s*[''"`][.\/]|\.split\(\s*/'
+      - '\b\w*(merge|Merge|extend|Extend|assign|Assign|deep|Deep|clone|Clone|set|Set)\w*\(\s*[\w$.]+\[\s*[\w$]+\s*\]'
+      - '\[\s*[\w$]+\s*\]\s*\[[^\]]+\]\s*='
+    guards:
+      - '__proto__|[''"`]constructor[''"`]|[''"`]prototype[''"`]'
+      - 'hasOwnProperty|Object\.hasOwn\(|Object\.create\(\s*null\s*\)|isSafe\w*Key|isPrototypePolluted|new Map\(|Object\.freeze\(Object\.prototype'
