@@ -1,5 +1,7 @@
 # Plan 01 — SQLite storage
 
+**Status:** built (`store.go`), the minimal shape below. The repo map stays in memory; a save marshals each repo, compares a hash with what was last written and upserts only the changed rows in one transaction (deleted repos and capped-off runs are removed). Migrations are an ordered slice in `store.go`. `modernc.org/sqlite` is pinned at v1.46.1, the last release that builds with Go 1.24; newer ones raise the `go` line in `go.mod`.
+
 ## Why
 
 `store.go` keeps every repo in a map and rewrites the whole thing to `data/state.json` every ~2 seconds during a run (`saver()` + `markDirty()`). Once scan hits and snippets pile up, that file grows to tens of MB and every save re-serialises all of it. SQLite fixes that: incremental writes, real queries for the dashboard's filters, and no "rewrite the world" on every change.

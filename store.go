@@ -1,11 +1,19 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"hash/fnv"
+	"log"
 	"os"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
+
+	_ "modernc.org/sqlite"
 )
 
 type Contact struct {
@@ -167,43 +175,186 @@ type RunRecord struct {
 	Outcome    string    `json:"outcome"`
 }
 
+// stateFile is the old data/state.json format, read once by importStateFile and never written.
 type stateFile struct {
 	Repos map[string]*Repo `json:"repos"`
 	Runs  []RunRecord      `json:"runs"`
 }
 
+// Store keeps every repo in memory (the pipeline and the API work on the map) and persists it to
+// SQLite. A save marshals each repo, compares it with what was last written and writes only the
+// rows that changed, so a scan touching one repo writes one row instead of the whole dataset.
 type Store struct {
-	mu     sync.RWMutex
-	saveMu sync.Mutex // serialises writers of the state file (they share one .tmp path)
-	path   string
-	repos  map[string]*Repo
-	runs   []RunRecord
-	dirty  chan struct{}
+	mu        sync.RWMutex
+	saveMu    sync.Mutex // serialises saves; guards saved and savedRuns
+	db        *sql.DB
+	repos     map[string]*Repo
+	runs      []RunRecord
+	saved     map[string]uint64 // repo key -> hash of the JSON in the database
+	savedRuns map[int]uint64
+	dirty     chan struct{}
 }
 
-func openStore(path string) (*Store, error) {
-	s := &Store{path: path, repos: map[string]*Repo{}, dirty: make(chan struct{}, 1)}
-	b, err := os.ReadFile(path)
-	if err == nil {
-		var sf stateFile
-		if err := json.Unmarshal(b, &sf); err != nil {
-			return nil, err
-		}
-		if sf.Repos != nil {
-			s.repos = sf.Repos
-		}
-		s.runs = sf.Runs
-	} else if !os.IsNotExist(err) {
+// migrations are applied in order; meta.schema_version counts how many already ran.
+// Append only: never edit one that has shipped.
+var migrations = []string{
+	`CREATE TABLE repos (
+		key        TEXT PRIMARY KEY,
+		source     TEXT NOT NULL,
+		status     TEXT NOT NULL DEFAULT 'new',
+		score      REAL,
+		passing    INTEGER NOT NULL DEFAULT 0,
+		updated_at TEXT NOT NULL,
+		json       TEXT NOT NULL
+	);
+	CREATE INDEX repos_score ON repos(passing, score DESC);
+	CREATE INDEX repos_status ON repos(status);
+	CREATE TABLE runs (
+		id      INTEGER PRIMARY KEY,
+		started TEXT NOT NULL,
+		json    TEXT NOT NULL
+	);`,
+}
+
+// openStore opens (or creates) dir/sift.db. On first start it imports dir/state.json, the old
+// format, and renames it to state.json.imported so it's kept as a backup but never read again.
+func openStore(dir string) (*Store, error) {
+	dsn := filepath.Join(dir, "sift.db") + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
 		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	s := &Store{db: db, repos: map[string]*Repo{}, saved: map[string]uint64{}, savedRuns: map[int]uint64{}, dirty: make(chan struct{}, 1)}
+	if err := s.migrate(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := s.load(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if len(s.repos) == 0 && len(s.runs) == 0 {
+		if err := s.importStateFile(filepath.Join(dir, "state.json")); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("importing state.json: %w", err)
+		}
 	}
 	go s.saver()
 	return s, nil
 }
 
-// saveEvery spaces out background saves. The whole state is rewritten each time (tens of MB once
-// a few thousand repos are in), so saving after every change during a scan meant ~1 GB/min of
-// disk writes. Runs call SaveNow when they finish, so at most this much work is ever unsaved.
-const saveEvery = time.Minute
+func (s *Store) migrate() error {
+	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`); err != nil {
+		return err
+	}
+	var v int
+	err := s.db.QueryRow(`SELECT CAST(v AS INTEGER) FROM meta WHERE k = 'schema_version'`).Scan(&v)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if v > len(migrations) {
+		return fmt.Errorf("sift.db has schema version %d, this build only knows %d: it was written by a newer sift", v, len(migrations))
+	}
+	for ; v < len(migrations); v++ {
+		tx, err := s.db.Begin()
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(migrations[v]); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("migration %d: %w", v+1, err)
+		}
+		if _, err := tx.Exec(`INSERT INTO meta (k, v) VALUES ('schema_version', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, v+1); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) load() error {
+	rows, err := s.db.Query(`SELECT key, json FROM repos`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		var b []byte
+		if err := rows.Scan(&key, &b); err != nil {
+			return err
+		}
+		r := &Repo{}
+		if err := json.Unmarshal(b, r); err != nil {
+			return fmt.Errorf("repo %s: %w", key, err)
+		}
+		s.repos[key] = r
+		s.saved[key] = hashBytes(b)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows, err = s.db.Query(`SELECT json FROM runs ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var b []byte
+		if err := rows.Scan(&b); err != nil {
+			return err
+		}
+		var r RunRecord
+		if err := json.Unmarshal(b, &r); err != nil {
+			return err
+		}
+		s.runs = append(s.runs, r)
+		s.savedRuns[r.ID] = hashBytes(b)
+	}
+	return rows.Err()
+}
+
+func (s *Store) importStateFile(path string) error {
+	b, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var sf stateFile
+	if err := json.Unmarshal(b, &sf); err != nil {
+		return err
+	}
+	if sf.Repos != nil {
+		s.repos = sf.Repos
+	}
+	s.runs = sf.Runs
+	if err := s.SaveNow(); err != nil {
+		return err
+	}
+	log.Printf("imported %d repos and %d runs from %s into sift.db", len(s.repos), len(s.runs), filepath.Base(path))
+	return os.Rename(path, path+".imported")
+}
+
+// Close writes anything unsaved and closes the database.
+func (s *Store) Close() error {
+	err := s.SaveNow()
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	if cerr := s.db.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// saveEvery spaces out background saves. A save only writes changed rows, but it still marshals
+// every repo to find them, so it isn't free. Runs call SaveNow when they finish.
+const saveEvery = 10 * time.Second
 
 func (s *Store) saver() {
 	var last time.Time
@@ -223,16 +374,136 @@ func (s *Store) markDirty() {
 	}
 }
 
+type repoRow struct {
+	key, source, status, updated string
+	score                        sql.NullFloat64
+	passing                      bool
+	json                         []byte
+	hash                         uint64
+}
+
+type runRow struct {
+	id      int
+	started string
+	json    []byte
+	hash    uint64
+}
+
+// SaveNow writes every repo and run that changed since the last save, in one transaction.
 func (s *Store) SaveNow() error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
+
+	var repos []repoRow
+	var runs []runRow
+	seen := make(map[string]bool, len(s.saved))
+	seenRuns := make(map[int]bool, len(s.savedRuns))
 	s.mu.RLock()
-	b, err := json.Marshal(stateFile{Repos: s.repos, Runs: s.runs})
+	for key, r := range s.repos {
+		seen[key] = true
+		b, err := json.Marshal(r)
+		if err != nil {
+			s.mu.RUnlock()
+			return fmt.Errorf("repo %s: %w", key, err)
+		}
+		h := hashBytes(b)
+		if old, ok := s.saved[key]; ok && old == h {
+			continue
+		}
+		row := repoRow{key: key, source: r.Source, status: r.Status, updated: r.UpdatedAt.UTC().Format(time.RFC3339Nano), passing: r.Filter.Pass, json: b, hash: h}
+		if r.Score != nil {
+			row.score = sql.NullFloat64{Float64: r.Score.Total, Valid: true}
+		}
+		repos = append(repos, row)
+	}
+	for _, r := range s.runs {
+		seenRuns[r.ID] = true
+		b, err := json.Marshal(r)
+		if err != nil {
+			s.mu.RUnlock()
+			return err
+		}
+		h := hashBytes(b)
+		if old, ok := s.savedRuns[r.ID]; ok && old == h {
+			continue
+		}
+		runs = append(runs, runRow{id: r.ID, started: r.Started.UTC().Format(time.RFC3339Nano), json: b, hash: h})
+	}
 	s.mu.RUnlock()
+
+	var gone []string
+	for key := range s.saved {
+		if !seen[key] {
+			gone = append(gone, key)
+		}
+	}
+	var goneRuns []int
+	for id := range s.savedRuns {
+		if !seenRuns[id] {
+			goneRuns = append(goneRuns, id)
+		}
+	}
+	if len(repos)+len(runs)+len(gone)+len(goneRuns) == 0 {
+		return nil
+	}
+
+	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.path, b, 0o644)
+	defer tx.Rollback()
+	if len(repos) > 0 {
+		st, err := tx.Prepare(`INSERT INTO repos (key, source, status, score, passing, updated_at, json) VALUES (?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(key) DO UPDATE SET source = excluded.source, status = excluded.status, score = excluded.score,
+			passing = excluded.passing, updated_at = excluded.updated_at, json = excluded.json`)
+		if err != nil {
+			return err
+		}
+		defer st.Close()
+		for _, r := range repos {
+			if _, err := st.Exec(r.key, r.source, r.status, r.score, r.passing, r.updated, r.json); err != nil {
+				return fmt.Errorf("repo %s: %w", r.key, err)
+			}
+		}
+	}
+	for _, key := range gone {
+		if _, err := tx.Exec(`DELETE FROM repos WHERE key = ?`, key); err != nil {
+			return err
+		}
+	}
+	for _, r := range runs {
+		if _, err := tx.Exec(`INSERT INTO runs (id, started, json) VALUES (?, ?, ?) ON CONFLICT(id) DO UPDATE SET started = excluded.started, json = excluded.json`, r.id, r.started, r.json); err != nil {
+			return err
+		}
+	}
+	for _, id := range goneRuns {
+		if _, err := tx.Exec(`DELETE FROM runs WHERE id = ?`, id); err != nil {
+			return err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// only now: a failed transaction leaves the old hashes, so the next save retries the same rows
+	for _, r := range repos {
+		s.saved[r.key] = r.hash
+	}
+	for _, key := range gone {
+		delete(s.saved, key)
+	}
+	for _, r := range runs {
+		s.savedRuns[r.id] = r.hash
+	}
+	for _, id := range goneRuns {
+		delete(s.savedRuns, id)
+	}
+	return nil
+}
+
+func hashBytes(b []byte) uint64 {
+	h := fnv.New64a()
+	h.Write(b)
+	return h.Sum64()
 }
 
 // With runs fn under the write lock and schedules a save.

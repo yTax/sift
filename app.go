@@ -115,8 +115,8 @@ func NewApp(base string) (*App, error) {
 	if a.settings, err = loadSettings(filepath.Join(a.dataDir, "settings.json")); err != nil {
 		return nil, fmt.Errorf("settings.json: %w", err)
 	}
-	if a.store, err = openStore(filepath.Join(a.dataDir, "state.json")); err != nil {
-		return nil, fmt.Errorf("state.json: %w", err)
+	if a.store, err = openStore(a.dataDir); err != nil {
+		return nil, fmt.Errorf("sift.db: %w", err)
 	}
 	a.Rescore() // a run that was killed never reached its final rescore
 	return a, nil

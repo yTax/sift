@@ -356,10 +356,7 @@ func TestCVEPathToggle(t *testing.T) {
 }
 
 func TestRunIDsStayUniquePastCap(t *testing.T) {
-	st, err := openStore(filepath.Join(t.TempDir(), "state.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	st := testStore(t, t.TempDir())
 	seen := map[int]bool{}
 	var last int
 	for i := 0; i < 130; i++ {
