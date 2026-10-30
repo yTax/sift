@@ -494,6 +494,34 @@ function notify() {
 	$log[] = 'Origin (` + "`$_SERVER[\"HTTP_HOST\"]`" + `) validated.';
 	$log[] = 'Invalid Order Id: ` + "`' . $_GET['order-id'] . '`" + `';
 }`, false},
+	{"code-from-input", "python eval in a docstring example", "sdk.py", `
+async def run_agent(message: str, tools=None):
+    """Run the agent.
+
+    Example:
+        @tool
+        def calculator(expression: str) -> float:
+            return eval(expression)
+    """
+    return await agent.run(message)
+`, false},
+	{"code-from-input", "python eval after a docstring", "tools/calc.py", `
+@mcp.tool()
+def calculator(expression: str) -> float:
+    """Evaluate a math expression."""
+    return eval(expression)
+`, true},
+	{"shell-from-input", "js exec in a block comment", "server.js", `
+app.post("/run", (req, res) => {
+  /*
+  exec(req.body.cmd);
+  */
+  res.send("ok");
+});`, false},
+	{"shell-from-input", "js exec after a /* route", "server.js", `
+app.post("/*", (req, res) => {
+  exec(req.body.cmd);
+});`, true},
 	{"xss-from-input", "php input only compared", "menu.php", `<?php
 function panel() {
 	echo '<div class="group"' . ((!empty($_GET['open']) && $_GET['open'] === 'pp') ? ' data-open' : '') . '>';

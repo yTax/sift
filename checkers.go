@@ -567,6 +567,7 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 	}
 	lines := strings.Split(src, "\n")
 	starts := lineStarts(src)
+	inBlock := blockLines(lines, lang)
 	var fns []fnSpan
 	if lang == "python" {
 		fns = pythonFunctions(src, lines, starts)
@@ -636,7 +637,7 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 			guardAt := -2 // first line with a guard, looked up on the first sink hit (-1: none)
 			for i := f.start; i <= f.end; i++ {
 				line := lines[i]
-				if commentLine(line, lang) {
+				if commentLine(line, lang) || inBlock[i] {
 					continue
 				}
 				var loc []int
@@ -880,6 +881,48 @@ func callCloses(s string) bool {
 
 // phpTestOnly matches PHP input that is only tested: isset/empty, or one side of a comparison.
 var phpTestOnly = regexp.MustCompile(`\b(isset|empty)\s*\([^()]*(\([^()]*\))?[^()]*\)|\$_[A-Z]+\[[^\]]*\]\s*(===?|!==?|<=?|>=?)|(===?|!==?)\s*\$_[A-Z]+\[[^\]]*\]`)
+
+// blockLines marks the lines that start inside a block comment, or in Python inside a
+// triple-quoted string (docstrings hold example code: `return eval(expression)`).
+func blockLines(lines []string, lang string) []bool {
+	opens := []string{"/*"}
+	if lang == "python" {
+		opens = []string{`"""`, `'''`}
+	}
+	in := make([]bool, len(lines))
+	closer := ""
+	for i, line := range lines {
+		in[i] = closer != ""
+		for at := 0; at < len(line); {
+			if closer != "" {
+				j := strings.Index(line[at:], closer)
+				if j < 0 {
+					break
+				}
+				at, closer = at+j+len(closer), ""
+				continue
+			}
+			j, open := -1, ""
+			for _, t := range opens {
+				if k := strings.Index(line[at:], t); k >= 0 && (j < 0 || k < j) {
+					j, open = k, t
+				}
+			}
+			if j < 0 {
+				break
+			}
+			if j += at; open == "/*" && !inCode(line, j, lang) {
+				at = j + 2 // "/*" inside a string: a route or a glob
+				continue
+			}
+			at, closer = j+len(open), open
+			if open == "/*" {
+				closer = "*/"
+			}
+		}
+	}
+	return in
+}
 
 // commentLine reports whether a line is a comment or a docblock line.
 func commentLine(line, lang string) bool {
