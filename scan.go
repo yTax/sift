@@ -75,7 +75,7 @@ type scanOpts struct {
 
 // scanEngine goes up whenever the scanner, sink profiles or checkers change what a scan finds,
 // so the next run rescans repos whose stored scan is older even if their code hasn't moved.
-const scanEngine = 3
+const scanEngine = 4
 
 const (
 	maxSinkHitsKept    = 250

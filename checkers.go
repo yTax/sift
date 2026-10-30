@@ -575,11 +575,6 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 	}
 	source := checkerSources[lang]
 	interp := interpCache{}
-	comment := "//"
-	if lang == "python" {
-		comment = "#"
-	}
-
 	type key struct {
 		id   string
 		line int
@@ -641,7 +636,7 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 			guardAt := -2 // first line with a guard, looked up on the first sink hit (-1: none)
 			for i := f.start; i <= f.end; i++ {
 				line := lines[i]
-				if strings.HasPrefix(strings.TrimSpace(line), comment) {
+				if commentLine(line, lang) {
 					continue
 				}
 				var loc []int
@@ -658,6 +653,9 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 				if loc == nil || i == f.head || defLine.MatchString(line) {
 					continue // a method named exec() is not a call to exec()
 				}
+				if !inCode(line, loc[0], lang) {
+					continue // quoted in a log message or a trailing comment
+				}
 				via, conf := "", "medium"
 				if !l.NoInput {
 					args := line[loc[0]:]
@@ -666,6 +664,9 @@ func runCheckers(name string, b []byte, checkers []*Checker) []Finding {
 					}
 					if args = narrowArg(l, line, args, loc); args == "" {
 						continue
+					}
+					if lang == "php" {
+						args = phpTestOnly.ReplaceAllString(args, "") // input only compared, never output
 					}
 					if l.Interpolated {
 						via, conf = interpolatedInput(interp, lang, args, source, direct, tainted, built)
@@ -875,6 +876,37 @@ func callCloses(s string) bool {
 		}
 	}
 	return false
+}
+
+// phpTestOnly matches PHP input that is only tested: isset/empty, or one side of a comparison.
+var phpTestOnly = regexp.MustCompile(`\b(isset|empty)\s*\([^()]*(\([^()]*\))?[^()]*\)|\$_[A-Z]+\[[^\]]*\]\s*(===?|!==?|<=?|>=?)|(===?|!==?)\s*\$_[A-Z]+\[[^\]]*\]`)
+
+// commentLine reports whether a line is a comment or a docblock line.
+func commentLine(line, lang string) bool {
+	t := strings.TrimSpace(line)
+	if lang == "python" {
+		return strings.HasPrefix(t, "#")
+	}
+	return strings.HasPrefix(t, "//") || strings.HasPrefix(t, "/*") || strings.HasPrefix(t, "*") ||
+		lang == "php" && strings.HasPrefix(t, "#") && !strings.HasPrefix(t, "#[")
+}
+
+// inCode reports whether line[pos] is code: not inside a string or a trailing comment opened
+// earlier on the same line. Strings spanning lines are not tracked.
+func inCode(line string, pos int, lang string) bool {
+	for i := 0; i < pos && i < len(line); i++ {
+		switch c := line[i]; {
+		case c == '"' || c == '\'' || c == '`' && lang != "python":
+			if i = skipString(line, i) - 1; i >= pos {
+				return false
+			}
+		case c == '/' && i+1 < len(line) && (line[i+1] == '/' || line[i+1] == '*') && lang != "python":
+			return false
+		case c == '#' && (lang == "python" || lang == "php" && !strings.HasPrefix(line[i:], "#[")):
+			return false
+		}
+	}
+	return true
 }
 
 // skipString returns the index just past the string literal opening at s[i]; an unterminated

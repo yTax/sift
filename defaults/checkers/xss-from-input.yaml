@@ -10,7 +10,7 @@ langs:
       - '<\?=\s*'
       - '\b(printf|vprintf)\('
     line_guards:
-      - '\besc_(html|attr|url|js|textarea|xml)\w*\(|\bwp_kses\w*\(|\bhtmlspecialchars\(|\bhtmlentities\(|\bintval\(|\babsint\(|\(int\)\s*\$|\bjson_encode\(|\bwp_json_encode\(|\bsanitize_(key|text_field|email|title)\(|\burlencode\(|\brawurlencode\(|\bnumber_format\('
+      - '\besc_(html|attr|url|js|textarea|xml)\w*\(|\bwp_kses\w*\(|\bwp_strip_all_tags\(|\bhtmlspecialchars\(|\bhtmlentities\(|\bintval\(|\babsint\(|\(int\)\s*\$|\bjson_encode\(|\bwp_json_encode\(|\bsanitize_(key|text_field|email|title)\(|\burlencode\(|\brawurlencode\(|\bnumber_format\('
       - '\bwp_send_json\w*\('
   js-ts:
     interpolated: true

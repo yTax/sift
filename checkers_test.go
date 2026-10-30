@@ -477,6 +477,36 @@ async def fetch_page(url: str):
 server.tool("run", "Run", { file: z.string() }, async ({ file }) => {
   const out = execSync(` + "`wc -l ${file}`" + `).toString();
 });`, false},
+	// backticks in docblocks, trailing comments and log strings are markdown, not the operator
+	{"shell-from-input", "php backticks in a docblock", "utils.php", `<?php
+function clean_request() {
+	/**
+	 * Returns the sanitized version of the ` + "`$_REQUEST`" + ` super-global array.
+	 */
+	return $_REQUEST;
+}`, false},
+	{"shell-from-input", "php backticks in a trailing comment", "blocks.php", `<?php
+function post_type() {
+	$post_type = $_GET['t'] ?? 'post'; // If ` + "`$_GET`" + ` is not set it's a basic post.
+}`, false},
+	{"shell-from-input", "php backticks in a log string", "notify.php", `<?php
+function notify() {
+	$log[] = 'Origin (` + "`$_SERVER[\"HTTP_HOST\"]`" + `) validated.';
+	$log[] = 'Invalid Order Id: ` + "`' . $_GET['order-id'] . '`" + `';
+}`, false},
+	{"xss-from-input", "php input only compared", "menu.php", `<?php
+function panel() {
+	echo '<div class="group"' . ((!empty($_GET['open']) && $_GET['open'] === 'pp') ? ' data-open' : '') . '>';
+	echo ( isset( $_GET['edit-menu-item'] ) && $item_id == $_GET['edit-menu-item'] ) ? admin_url( 'nav-menus.php' ) : '';
+}`, false},
+	{"xss-from-input", "php input compared then echoed", "menu.php", `<?php
+function panel() {
+	echo ( isset( $_GET['tab'] ) && $_GET['tab'] !== '' ) ? '<b>' . $_GET['tab'] . '</b>' : '';
+}`, true},
+	{"shell-from-input", "php backtick operator", "tools.php", `<?php
+function run_ping() {
+	$out = ` + "`ping -c 1 $_GET[host]`" + `;
+}`, true},
 }
 
 func TestCheckers(t *testing.T) {
