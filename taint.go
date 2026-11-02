@@ -222,25 +222,44 @@ func confirmFindings(findings []Finding, results []semgrepResult) int {
 	return n
 }
 
-// findingsWeight sums finding weights; a Semgrep-confirmed finding counts half again.
+// findingsWeight scores root causes, not lines (plan 18): a cause counts once, at its strongest
+// finding, and each further cause counts less, so twenty findings from one helper or a pile of
+// weak ones can't outrank one good lead. A Semgrep-confirmed finding counts half again.
 func findingsWeight(fs []Finding) float64 {
-	w, lib := 0.0, 0.0
+	best := map[string]float64{}
+	lib := 0.0
 	for _, f := range fs {
+		v := f.Weight
 		switch {
 		case f.Confirmed:
-			w += f.Weight * 1.5
+			v *= 1.5
 		case f.Confidence == "low":
 			lib += f.Weight
-		default:
-			w += f.Weight
+			continue
 		}
+		if k := f.groupKey(); v > best[k] {
+			best[k] = v
+		}
+	}
+	causes := make([]float64, 0, len(best))
+	for _, v := range best {
+		causes = append(causes, v)
+	}
+	sort.Sort(sort.Reverse(sort.Float64Slice(causes)))
+	w, decay := 0.0, 1.0
+	for _, v := range causes {
+		w += v * decay
+		decay *= causeDecay
 	}
 	// library-mode findings count for about one medium finding at most: a package has many API
 	// functions, and which of them callers really feed untrusted data is unknown
 	return w + min(lib, maxLibFindingsWeight)
 }
 
-const maxLibFindingsWeight = 2.0
+const (
+	maxLibFindingsWeight = 2.0
+	causeDecay           = 0.7
+)
 
 // ---------- stage 4: taint ----------
 

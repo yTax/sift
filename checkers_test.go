@@ -651,7 +651,7 @@ func TestCheckers(t *testing.T) {
 		ids[c.ID] = true
 	}
 	for _, c := range checkerCases {
-		if !ids[c.checker] && c.checker != wpAuthzChecker && c.checker != routeAuthChecker {
+		if !ids[c.checker] && c.checker != wpAuthzChecker && c.checker != routeAuthChecker && c.checker != proxyChecker {
 			t.Fatalf("no checker %q", c.checker)
 		}
 		got := false

@@ -67,6 +67,30 @@ type Finding struct {
 	Confidence string  `json:"confidence"`          // high: an input reaches the sink directly; medium: through assignments
 	Confirmed  bool    `json:"confirmed,omitempty"` // Semgrep's taint analysis flagged the same line (taint.go)
 	Weight     float64 `json:"weight"`
+	Through    string  `json:"through,omitempty"` // the same-file helper that holds the sink
+	Group      string  `json:"group,omitempty"`   // findings with the same root cause (groupKey)
+	Trace      []TraceStep `json:"trace,omitempty"`
+}
+
+// TraceStep is one line of how the input got to the sink.
+type TraceStep struct {
+	Line int    `json:"line"`
+	Kind string `json:"kind"` // input | step | call | sink
+	Text string `json:"text"`
+}
+
+// groupKey names a finding's root cause: fixing the helper, the input or the file's auth fixes
+// them all, so they count once.
+func (f Finding) groupKey() string {
+	switch {
+	case f.Through != "":
+		return f.Checker + "|" + f.Path + "|>" + f.Through
+	case f.Checker == routeAuthChecker:
+		return f.Checker + "|" + f.Path
+	case f.Func != "" && f.Via != "":
+		return f.Checker + "|" + f.Path + "|" + f.Func + "|" + f.Via
+	}
+	return fmt.Sprintf("%s|%s|%d", f.Checker, f.Path, f.Line)
 }
 
 // Build, CI and dev scripts run on the developer's machine with their own arguments; nothing
@@ -637,7 +661,8 @@ func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Fi
 	}
 	wp := lang == "php" && (strings.Contains(src, "wp_ajax_") || strings.Contains(src, "register_rest_route"))
 	routes := (lang == "js-ts" || lang == "python") && routeHint.MatchString(src)
-	if len(active) == 0 && !wp && !routes {
+	proxy := proxyHint(name, src, lang)
+	if len(active) == 0 && !wp && !routes && !proxy {
 		return nil
 	}
 	lines := strings.Split(src, "\n")
@@ -699,8 +724,12 @@ func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Fi
 				if hit.w != nil {
 					msg += fmt.Sprintf(" (through %s(), which reaches it on line %d)", hit.w.fn, hit.w.sinkLine+1)
 				}
+				through := ""
+				if hit.w != nil {
+					through = hit.w.fn
+				}
 				out = append(out, Finding{Checker: c.ID, Class: c.Class, Path: name, Line: hit.line + 1, Func: f.name, Via: hit.via,
-					Message: msg, Snippet: snip, Confidence: hit.conf, Weight: w})
+					Message: msg, Snippet: snip, Confidence: hit.conf, Weight: w, Through: through, Trace: fc.trace(f, hit, t)})
 			}
 		}
 	}
@@ -709,6 +738,12 @@ func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Fi
 	}
 	if routes {
 		out = append(out, routeAuthGaps(name, src, lines, lang, fns)...)
+	}
+	if proxy {
+		out = append(out, proxyAuthGaps(name, src, lines, lang, fns)...)
+	}
+	for i := range out {
+		out[i].Group = out[i].groupKey()
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Weight != out[j].Weight {

@@ -389,6 +389,7 @@ type BenchReport struct {
 	CoveredSet  int           `json:"covered_cases"` // cases in a class some checker covers
 	Classes     []BenchClass  `json:"classes"`
 	Results     []BenchResult `json:"results"`
+	Precision   *PrecisionReport `json:"precision,omitempty"`
 }
 
 // changedLines reads a unified diff: the lines a fix removed or replaced (old side) and the
@@ -655,6 +656,7 @@ func (a *App) RunBench() (BenchReport, error) {
 	}
 	checkers, _ := a.checkers()
 	rep := BenchScore(cases, checkers)
+	rep.Precision = a.scorePrecision(checkers)
 	dir := a.benchDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return rep, err
@@ -702,6 +704,9 @@ func FormatBench(rep BenchReport) string {
 		}
 		fmt.Fprintf(&b, "%-20s %6d %4d %2.0f%% %8d %7d %6d\n", name, c.Cases, c.Caught, pct(c.Caught, c.Cases), c.Cleared, c.StillAfter, c.OtherClass)
 	}
+	if rep.Precision != nil {
+		b.WriteString(formatPrecision(rep.Precision))
+	}
 	return b.String()
 }
 
@@ -730,6 +735,9 @@ func (a *App) hBench(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) hBenchRun(w http.ResponseWriter, r *http.Request) {
+	if _, err := a.PrecisionCollect(r.Context()); err != nil {
+		a.warnf("[bench] %v", err)
+	}
 	rep, err := a.RunBench()
 	if err != nil {
 		writeErr(w, 500, err.Error())
@@ -754,6 +762,9 @@ func (a *App) hBenchCollect(w http.ResponseWriter, r *http.Request) {
 		if _, err := a.BenchCollect(context.Background(), req.Days, 2000); err != nil {
 			a.warnf("[bench] %v", err)
 			return
+		}
+		if _, err := a.PrecisionCollect(context.Background()); err != nil {
+			a.warnf("[bench] %v", err)
 		}
 		if _, err := a.RunBench(); err != nil {
 			a.warnf("[bench] %v", err)

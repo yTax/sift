@@ -53,7 +53,8 @@ func (fc *fileCtx) taint(f fnSpan, inputs []string) taintState {
 				}
 				rhs := m[2]
 				hasSource := source != nil && source.MatchString(rhs)
-				n := containsName(rhs, t.tainted)
+				// a plain string holds no variable: "graph:write" doesn't read graph
+				n := containsName(blankLiterals(rhs, lang), t.tainted)
 				if n == "" && !hasSource {
 					continue
 				}
@@ -222,6 +223,91 @@ func (fc *fileCtx) scan(f fnSpan, c *Checker, t taintState, hs *helperSet, summa
 		out = append(out, sinkHit{line: i, via: via, conf: conf, w: w, passes: passes})
 	}
 	return out
+}
+
+const (
+	maxTraceSteps = 6
+	maxTraceText  = 140
+)
+
+func traceText(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > maxTraceText {
+		s = s[:maxTraceText] + "…"
+	}
+	return s
+}
+
+// trace walks back from a sink to where the input entered the function: the line taint() would
+// have followed, read in the other direction, for the "why this fired" view.
+func (fc *fileCtx) trace(f fnSpan, hit sinkHit, t taintState) []TraceStep {
+	if hit.via == "" {
+		return nil
+	}
+	kind := "sink"
+	if hit.w != nil {
+		kind = "call"
+	}
+	rev := []TraceStep{{hit.line + 1, kind, traceText(fc.lines[hit.line])}}
+	name, at := hit.via, hit.line
+	entered := false
+walk:
+	for len(rev) < maxTraceSteps {
+		if fc.source != nil && fc.source.MatchString(name) {
+			break // the sink line reads the request itself
+		}
+		for j := at - 1; j >= f.start; j-- {
+			for _, re := range assignRes[fc.lang] {
+				m := re.FindStringSubmatch(fc.lines[j])
+				if m == nil {
+					continue
+				}
+				if !containsString(lhsNames(m[1]), name) {
+					break
+				}
+				rhs := m[2]
+				fromSource := fc.source != nil && fc.source.MatchString(rhs)
+				next := ""
+				for _, id := range identRe.FindAllString(blankLiterals(rhs, fc.lang), -1) {
+					if t.tainted[id] && (next == "" || next == name) {
+						next = id
+					}
+				}
+				if next == "" && !fromSource {
+					break
+				}
+				if fromSource {
+					rev = append(rev, TraceStep{j + 1, "input", traceText(fc.lines[j])})
+					entered = true
+					break walk
+				}
+				rev = append(rev, TraceStep{j + 1, "step", traceText(fc.lines[j])})
+				name, at = next, j
+				continue walk
+			}
+		}
+		break
+	}
+	if !entered && t.direct[name] {
+		rev = append(rev, TraceStep{f.head + 1, "input", traceText(fc.lines[f.head])})
+	}
+	out := make([]TraceStep, 0, len(rev)+1)
+	for i := len(rev) - 1; i >= 0; i-- {
+		out = append(out, rev[i])
+	}
+	if hit.w != nil && hit.w.sinkLine < len(fc.lines) {
+		out = append(out, TraceStep{hit.w.sinkLine + 1, "sink", traceText(fc.lines[hit.w.sinkLine])})
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------- same-file helpers ----------

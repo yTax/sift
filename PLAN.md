@@ -32,6 +32,7 @@ Each file in `docs/plans/` is one self-contained build unit: context, goal, appr
 | 14 | [`14-library.md`](docs/plans/14-library.md) | Drop-in folders for dorks, checkers, sinks and Semgrep rules, with builders and live tests in the panel, plus the settings screen | 8a |
 | 15 | [`15-impact-and-reportability.md`](docs/plans/15-impact-and-reportability.md) | "Used by" (deps.dev dependents, downloads, installs) and a "CVE-ready" signal: how much a bug matters and whether it will become a CVE | 4a |
 | 16 | [`16-report-drafts.md`](docs/plans/16-report-drafts.md) | Turn a verified finding into an advisory draft (title, CWE, CVSS, permalinks, fix, where to send it) from templates | 15 |
+| 18 | [`18-evidence.md`](docs/plans/18-evidence.md) | Precision bench from hand-read leads, unprotected proxy checker, "why this fired", findings grouped by root cause, ranking that volume can't inflate | 17 |
 | 17 | [`17-bench.md`](docs/plans/17-bench.md) | Score the checkers on real advisories (code before and after the fix), so every change is measured and the misses pick the next checker | 4c |
 
 ### Build order
@@ -53,6 +54,7 @@ Done so far:
 - **4c (variant feed)**: a daily check inside sift turns new advisories with a fix that touches a checker sink into variant hunts.
 - **17 (bench)** and **12 layer 3**: 1,842 fixed advisories score every checker change. Library mode, input-aware guards, same-file helpers and four new checkers (route auth gaps, prototype pollution, open redirect, template injection) took real-bug recall from 1% to 9%.
 - **Third review round** (engine 7-9, full rescan): quoted array keys, upload temp paths, `Depends()` values, whole request objects, non-HTTP `request` params, bound SQL parameters and secret-compare auth stopped firing. Repos with a high or confirmed finding went from 205 to 145; the bench lost one accidental catch (157 to 156).
+- **18 (evidence)**: labelled leads score false alarms, findings carry a trace and a root cause, and a repo without a finding keeps at most 60% of its score.
 
 Next, in order:
 1. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.

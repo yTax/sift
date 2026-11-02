@@ -73,7 +73,8 @@ func TestConfirmFindings(t *testing.T) {
 	if n != 1 || !fs[0].Confirmed || fs[1].Confirmed || fs[2].Confirmed {
 		t.Errorf("confirmed %d: %+v", n, fs)
 	}
-	if w := findingsWeight(fs); w != 4*1.5+4+2 {
+	// three causes, strongest first: each further one counts less
+	if w := findingsWeight(fs); w < 9.77 || w > 9.79 {
 		t.Errorf("weight %v", w)
 	}
 }

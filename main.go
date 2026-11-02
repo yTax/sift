@@ -48,6 +48,9 @@ func main() {
 				log.Fatalf("bench: %v", err)
 			}
 		}
+		if _, err := app.PrecisionCollect(context.Background()); err != nil {
+			log.Printf("bench: precision: %v", err)
+		}
 		rep, err := app.RunBench()
 		if err != nil {
 			log.Fatalf("bench: %v", err)

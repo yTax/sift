@@ -67,8 +67,31 @@ async function loadBench(card) {
           h("td", null, c.cleared),
           h("td", null, c.still_after),
           h("td", null, prev ? delta(c.caught, (prev.by_class || {})[c.class] || 0) : null)))))),
+      precisionBlock(rep.precision),
       benchList(rep),
     ]);
+}
+
+const PRECISION_STATUS = { fired: "still fires", quiet: "no longer fires", stale: "line is gone", missing: "no snapshot" };
+
+// leads read by hand: real bugs should keep firing, false alarms should stop
+function precisionBlock(p) {
+  if (!p) return null;
+  const wrong = (p.results || []).filter((r) => (r.label === "real" ? r.status !== "fired" : r.status !== "quiet"));
+  return [
+    h("h3", null, "Leads read by hand"),
+    h("p", null, h("b", null, p.silenced + " of " + p.false_alarms), " false alarms silenced, ",
+      h("b", null, p.kept + " of " + p.real), " real bugs still flagged",
+      p.unscored ? h("span", { class: "muted" }, ", " + p.unscored + " unscored") : null, "."),
+    wrong.length ? h("details", null,
+      h("summary", null, "Still to fix (" + wrong.length + ")"),
+      h("ul", { class: "plain benchlist" }, wrong.map((r) => h("li", null,
+        h("span", { class: "chip " + (r.label === "real" ? "bad" : "warn") }, r.label === "real" ? "real bug" : "false alarm"), " ",
+        h("span", { class: "chip" }, PRECISION_STATUS[r.status] || r.status), " ",
+        h("span", { class: "muted" }, r.checker), " ",
+        h("span", { class: "mono" }, r.repo + " " + r.path),
+        h("div", null, r.why))))) : null,
+  ];
 }
 
 function benchList(rep) {

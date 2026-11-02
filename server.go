@@ -39,6 +39,7 @@ func (a *App) Routes(static fs.FS, extraHosts ...string) http.Handler {
 	mux.HandleFunc("GET /api/feed", a.hFeed)
 	mux.HandleFunc("POST /api/feed/run", a.hFeedRun)
 	mux.HandleFunc("GET /api/bench", a.hBench)
+	mux.HandleFunc("GET /api/checker-guards", a.hCheckerGuards)
 	mux.HandleFunc("POST /api/bench/run", a.hBenchRun)
 	mux.HandleFunc("POST /api/bench/collect", a.hBenchCollect)
 	mux.HandleFunc("POST /api/rescore", a.hRescore)
@@ -82,6 +83,19 @@ func guard(next http.Handler, extraHosts []string) http.Handler {
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
+}
+
+// hCheckerGuards lists what each checker accepts as a guard, per language, for "why this fired".
+func (a *App) hCheckerGuards(w http.ResponseWriter, r *http.Request) {
+	checkers, _ := a.checkers()
+	out := map[string]map[string][]string{}
+	for _, c := range checkers {
+		out[c.ID] = map[string][]string{}
+		for lang, l := range c.Langs {
+			out[c.ID][lang] = append(append([]string{}, l.Guards...), l.LineGuards...)
+		}
+	}
+	writeJSON(w, out)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -207,6 +221,7 @@ type repoSummary struct {
 	Findings     int            `json:"findings"`
 	HighFindings int            `json:"high_findings"`
 	Confirmed    int            `json:"confirmed"`
+	Causes       int            `json:"causes"` // findings grouped by root cause
 	Classes      map[string]int `json:"classes,omitempty"`
 	FirstSeen    time.Time      `json:"first_seen"`
 	VariantOf    []string       `json:"variant_of,omitempty"`
@@ -246,7 +261,9 @@ func summarize(r *Repo) repoSummary {
 		s.Sinks, s.Surface, s.Auth, s.Classes = sc.SinkHits, sc.SurfaceHits, sc.AuthHits, sc.ByClass
 		s.Paired = sc.PairedFiles
 		s.Findings = len(sc.Findings)
+		causes := map[string]bool{}
 		for _, f := range sc.Findings {
+			causes[f.groupKey()] = true
 			if f.Confidence == "high" {
 				s.HighFindings++
 			}
@@ -254,6 +271,7 @@ func summarize(r *Repo) repoSummary {
 				s.Confirmed++
 			}
 		}
+		s.Causes = len(causes)
 	}
 	return s
 }

@@ -129,7 +129,7 @@ function filtered() {
   const key = {
     score: (r) => (r.score ? r.score.total : -1),
     paired: (r) => r.paired || 0,
-    findings: (r) => (r.confirmed || 0) * 1e9 + (r.high_findings || 0) * 1e6 + (r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
+    findings: (r) => (r.confirmed || 0) * 1e9 + (r.high_findings || 0) * 1e6 + (r.causes || r.findings || 0) * 1000 + (r.score ? r.score.total : 0),
     stars: (r) => r.popularity || 0,
     pushed: (r) => (r.pushed_at ? Date.parse(r.pushed_at) : 0),
   }[sort];
@@ -147,7 +147,7 @@ function rowEl(r) {
       routeChip(r.cve_path),
       r.confirmed ? h("span", { class: "chip good" }, r.confirmed + " confirmed") : null,
       r.high_findings ? h("span", { class: "chip bad" }, r.high_findings + " high") : null,
-      r.findings ? h("span", { class: "chip warn" }, r.findings + " finding" + (r.findings > 1 ? "s" : "")) : null,
+      r.findings ? h("span", { class: "chip warn", title: r.findings + " finding(s)" }, (r.causes || r.findings) + " cause" + ((r.causes || r.findings) > 1 ? "s" : "")) : null,
       r.paired ? h("span", { class: "chip" }, r.paired + " paired") : null,
       r.advisories > 0 ? h("span", { class: "chip" }, r.advisories + " GHSA") : null,
       r.sec_issues > 0 ? h("span", { class: "chip warn" }, r.sec_issues + " open security issue" + (r.sec_issues > 1 ? "s" : "")) : null),
@@ -211,28 +211,88 @@ function reportCard(repo) {
         c.where ? h("span", { class: "muted" }, " · " + c.where) : null))) : null);
 }
 
+let checkerGuards = null;
+async function loadCheckerGuards() {
+  if (!checkerGuards) checkerGuards = await api("/api/checker-guards");
+  return checkerGuards;
+}
+
+function findingLang(p) {
+  const e = (p.split(".").pop() || "").toLowerCase();
+  if (e === "py") return "python";
+  if (e === "php") return "php";
+  if (e === "go") return "go";
+  return "js-ts";
+}
+
+// "why this fired": the input's path to the sink, and the guards that would have silenced it
+function whyFired(repo, f) {
+  const guards = h("div", { class: "muted" }, "Loading…");
+  const box = h("details", { class: "why", ontoggle: async () => {
+    if (!box.open || box.dataset.loaded) return;
+    box.dataset.loaded = "1";
+    let list = [];
+    try { list = ((await loadCheckerGuards())[f.checker] || {})[findingLang(f.path)] || []; } catch (err) { fillView(guards, err.message); return; }
+    fillView(guards, list.length
+      ? [h("div", { class: "muted" }, "Sift looked for these guards and found none protecting this line:"), list.map((g) => h("div", { class: "snip" }, g))]
+      : h("div", { class: "muted" }, "This check has no guard list: the shape itself is what it flags."));
+  } },
+    h("summary", null, "Why this fired"),
+    (f.trace || []).length ? h("ol", { class: "trace" }, f.trace.map((s) => {
+      const href = ghLink(repo, repo.scan.ref, f.path, s.line);
+      return h("li", { class: s.kind },
+        h("span", { class: "chip" + (s.kind === "sink" ? " bad" : s.kind === "input" ? " warn" : "") }, s.kind), " ",
+        href ? ext(href, "line " + s.line) : "line " + s.line,
+        h("div", { class: "snip" }, s.text));
+    })) : h("p", { class: "muted" }, f.message),
+    guards);
+  return box;
+}
+
+function findingItem(repo, f) {
+  const sc = repo.scan;
+  const href = ghLink(repo, sc.ref, f.path, f.line);
+  const loc = f.path + ":" + f.line;
+  return [
+    h("div", null,
+      f.confirmed ? [h("span", { class: "chip good" }, "confirmed by Semgrep"), " "] : null,
+      h("span", { class: "chip " + (f.confidence === "high" ? "bad" : f.confidence === "low" ? "" : "warn") }, f.confidence === "low" ? "library API" : f.confidence), " ",
+      h("span", { class: "chip" }, f.class), " ",
+      href ? ext(href, h("span", { class: "mono" }, loc)) : h("span", { class: "mono" }, loc),
+      f.func ? h("span", { class: "muted" }, " in " + f.func + "()") : null),
+    h("div", { class: "muted" }, f.message + (f.via ? " (via " + f.via + ")" : "")),
+    h("div", { class: "snip" }, f.snippet),
+    whyFired(repo, f),
+  ];
+}
+
+// one entry per root cause, strongest finding first; the rest fold under it
+function findingCauses(list) {
+  const rank = (f) => (f.confirmed ? 100 : 0) + (f.weight || 0);
+  const by = new Map();
+  list.forEach((f, i) => {
+    const k = f.group || "line:" + i;
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(f);
+  });
+  return [...by.values()].map((g) => g.sort((a, b) => rank(b) - rank(a))).sort((a, b) => rank(b[0]) - rank(a[0]));
+}
+
 function findingsCard(repo) {
   const sc = repo.scan;
   const list = (sc && sc.findings) || [];
   if (!list.length) return null;
+  const causes = findingCauses(list);
   return h("section", { class: "card" },
-    h("h2", null, "Checker findings (" + list.length + "): read these lines first"),
+    h("h2", null, "Checker findings: " + causes.length + " cause" + (causes.length > 1 ? "s" : "") + " in " + list.length + " finding" + (list.length > 1 ? "s" : "") + ", read these first"),
     sc.semgrep ? h("p", { class: "muted" }, sc.semgrep.error ? "Semgrep: " + sc.semgrep.error
       : "Semgrep checked " + sc.semgrep.files + " file(s) " + ago(sc.semgrep.at) + ": " + list.filter((f) => f.confirmed).length + " confirmed.") : null,
     h("p", { class: "muted" }, "Text-level checks, not proof. Each one says which input reached which call; confirm by reading the function."),
-    h("ul", { class: "plain" }, list.map((f) => {
-      const href = ghLink(repo, sc.ref, f.path, f.line);
-      const loc = f.path + ":" + f.line;
-      return h("li", null,
-        h("div", null,
-          f.confirmed ? [h("span", { class: "chip good" }, "confirmed by Semgrep"), " "] : null,
-          h("span", { class: "chip " + (f.confidence === "high" ? "bad" : f.confidence === "low" ? "" : "warn") }, f.confidence === "low" ? "library API" : f.confidence), " ",
-          h("span", { class: "chip" }, f.class), " ",
-          href ? ext(href, h("span", { class: "mono" }, loc)) : h("span", { class: "mono" }, loc),
-          f.func ? h("span", { class: "muted" }, " in " + f.func + "()") : null),
-        h("div", { class: "muted" }, f.message + (f.via ? " (via " + f.via + ")" : "")),
-        h("div", { class: "snip" }, f.snippet));
-    })));
+    h("ul", { class: "plain" }, causes.map((g) => h("li", null,
+      findingItem(repo, g[0]),
+      g.length > 1 ? h("details", null,
+        h("summary", null, (g.length - 1) + " more from the same cause"),
+        h("ul", { class: "plain" }, g.slice(1).map((f) => h("li", null, findingItem(repo, f))))) : null))));
 }
 
 function hotCard(repo) {

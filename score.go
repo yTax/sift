@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const evidenceFloor = 0.6
+
 func logScale(x, cap float64) float64 {
 	if x <= 0 {
 		return 0
@@ -125,6 +127,9 @@ func computeScore(r *Repo, s Settings, contactHandledByProgram bool) *Score {
 	if wsum > 0 {
 		total = sum / wsum * 10
 	}
+	// Volume says where to look, findings say there's something there: without a finding a repo
+	// keeps 60% of its score, however many sinks it has (plan 18).
+	total *= evidenceFloor + (1-evidenceFloor)*parts["findings"]/10
 	_, scanned := parts["sinks"]
 	return &Score{Total: math.Round(total*10) / 10, Parts: parts, Partial: !scanned, At: time.Now()}
 }

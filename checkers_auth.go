@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -35,6 +36,102 @@ var (
 	// HTTP clients look like routers: api.get("/users", { params })
 	jsClientRecv = regexp.MustCompile(`^(axios|request|http|https|client|apiClient|fetcher|instance|\$http|got|ky|superagent|service|api)$`)
 )
+
+// ---------- catch-all proxies: the server's credential, for anyone ----------
+
+const proxyChecker = "unprotected-proxy"
+
+var (
+	proxyPathJS    = regexp.MustCompile("\\.join\\(\\s*['\"`]/['\"`]\\s*\\)")
+	proxyRawJS     = regexp.MustCompile(`\breq\.originalUrl\b|\breq\.params\[0\]`)
+	proxyPathPy    = regexp.MustCompile(`\{\w+:path\}`)
+	proxyForwardJS = regexp.MustCompile(`\b(fetch|axios(\.\w+)?|got)\(`)
+	proxyForwardPy = regexp.MustCompile(`\b(httpx|requests|client|session)\.(get|post|put|patch|delete|request|stream)\(`)
+	proxyHeader    = regexp.MustCompile("(?i)['\"`]?(x-[\\w-]*(key|token|secret|auth)[\\w-]*|authorization|api-?key)['\"`]?\\s*[:=]\\s*(.+)")
+	proxyEnvJS     = regexp.MustCompile(`(?m)(?:const|let|var)\s+(\w+)\s*(?::[^=\n]+)?=\s*process\.env`)
+	proxyEnvPy     = regexp.MustCompile(`(?m)^\s*(\w+)\s*(?::[^=\n]+)?=\s*(?:os\.environ|os\.getenv|settings\.)`)
+	proxyEnvInline = regexp.MustCompile(`process\.env|os\.environ|os\.getenv|settings\.`)
+	// narrower than authWordRe, where "api_key" would match the very header being added
+	proxyLoginRe = regexp.MustCompile(`(?i)getServerSession|getSession|\bauth\(\)|verify\w*(session|token|user)|check\w*(session|auth|admin)|require\w*(auth|user|admin|login|session)|is_?authenticated|\breq(uest)?\.(user|session)\b|current_user|get_current_\w+|Depends\(\s*\w*(auth|user|admin)|session\.user|status:\s*40[13]|status_code\s*=\s*40[13]`)
+)
+
+// proxyHint is the cheap test for a file that may hold a catch-all proxy.
+func proxyHint(name, src, lang string) bool {
+	switch lang {
+	case "js-ts":
+		return strings.Contains(name, "[...") || strings.Contains(name, "[[...") || proxyRawJS.MatchString(src)
+	case "python":
+		return proxyPathPy.MatchString(src)
+	}
+	return false
+}
+
+// proxyAuthGaps flags handlers that forward any path upstream with a credential from the
+// server's environment and check no login on the way.
+func proxyAuthGaps(name, src string, lines []string, lang string, fns []fnSpan) []Finding {
+	var env map[string]bool
+	collect := func(re *regexp.Regexp) {
+		env = map[string]bool{}
+		for _, m := range re.FindAllStringSubmatch(src, -1) {
+			env[m[1]] = true
+		}
+	}
+	nextRoute := strings.Contains(name, "[...") || strings.Contains(name, "[[...")
+	forward := proxyForwardJS
+	if lang == "python" {
+		if pyRouterAuth.MatchString(src) {
+			return nil
+		}
+		collect(proxyEnvPy)
+		forward = proxyForwardPy
+	} else {
+		for _, m := range jsRouterAuth.FindAllStringSubmatch(src, -1) {
+			if authWordRe.MatchString(m[1]) {
+				return nil
+			}
+		}
+		collect(proxyEnvJS)
+	}
+	sorted := append([]fnSpan(nil), fns...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].start < sorted[j].start })
+	var out []Finding
+	covered := -1
+	for _, f := range sorted {
+		if f.start <= covered || f.end < f.start || f.end >= len(lines) || f.head >= len(lines) {
+			continue
+		}
+		body := strings.Join(lines[f.head:f.end+1], "\n")
+		if !forward.MatchString(body) {
+			continue
+		}
+		catchAll := false
+		if lang == "python" {
+			for j := f.head - 1; j >= 0 && strings.HasPrefix(strings.TrimSpace(lines[j]), "@"); j-- {
+				catchAll = catchAll || proxyPathPy.MatchString(lines[j])
+			}
+		} else {
+			catchAll = nextRoute && proxyPathJS.MatchString(body) || proxyRawJS.MatchString(body)
+		}
+		if !catchAll || proxyLoginRe.MatchString(body) {
+			continue
+		}
+		cred := ""
+		for _, m := range proxyHeader.FindAllStringSubmatch(body, -1) {
+			if proxyEnvInline.MatchString(m[3]) || mentionsName(m[3], env) {
+				cred = m[1]
+				break
+			}
+		}
+		if cred == "" {
+			continue
+		}
+		covered = f.end
+		out = append(out, Finding{Checker: proxyChecker, Class: "missing-auth", Path: name, Line: f.head + 1, Func: f.name,
+			Message: "Catch-all proxy forwards any path upstream with the server's own credential (" + cred + ") and checks no login in the handler. Anyone who can reach it acts with that credential, unless a middleware file covers the route",
+			Snippet: strings.TrimSpace(lines[f.head]), Confidence: "medium", Weight: 3.5})
+	}
+	return out
+}
 
 type route struct {
 	line          int
