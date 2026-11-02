@@ -1,6 +1,6 @@
 # Plan 18 — Evidence: trust what sift says, and rank by it
 
-**Status: built.** `precision.go`, `defaults/precision.json`, `checkers_flow.go` (`trace`), `checkers_auth.go` (`proxyAuthGaps`), `taint.go` (`findingsWeight`), `score.go`.
+**Status: built.** `precision.go`, `defaults/precision.json`, `checkers_flow.go` (`trace`), `checkers_auth.go` (`proxyAuthGaps`), `taint.go` (`findingsWeight`), `score.go`, `checkers_flow.go` (`gated`).
 
 ## Why
 
@@ -36,13 +36,12 @@ Each finding gets a `group`: findings through the same helper, the same input in
 
 ## F. Validators called on their own
 
-A function called as its own statement can only refuse, so `requireServer(id);` or `_validate_service_id(x)` before a sink counts as a guard when the same file shows it throwing, and either its body holds a checker guard or its name says it validates. A name alone isn't enough: `validateUrl()` is often the weak code the advisory is about.
+A function called as its own statement can only refuse, so `requireServer(id);` or `_validate_service_id(x)` before a sink counts as a guard when the same file shows it throwing, and either its body holds a checker guard or its name says it validates. A name alone isn't enough: `validateUrl()` is often the weak code the advisory is about. For the same reason SSRF gets no gates: the bench lost a real catch where the validator was the bug.
 
 Tried and dropped: treating a URL variable as safe when it was assigned from a fixed base. It lost three real SSRF catches on the bench and didn't silence the false alarm it was for.
 
 ## Later
 
 - Validators in another file. Only one known false alarm needs them so far; the rest were same-file.
-
 - Mark a single finding real or dud in the panel, which adds a label and feeds plan 13.
 - Read the repo's file list for a Next `middleware.ts`, to silence `unprotected-proxy` when one covers the route.
