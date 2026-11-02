@@ -10,6 +10,25 @@ func init() {
 		want                     bool
 	}{
 		// --- false positives from the engine 6 rescan ---
+		{wpAuthzChecker, "site token compared before acting", "ajax.php", `<?php
+add_action('wp_ajax_nopriv_unsub', 'unsub');
+function unsub() {
+    $saved_token = get_option('unsubscribe_token', false);
+    if ($saved_token && $saved_token == $_GET['t']) {
+        update_option('emails', 0);
+    }
+}`, false},
+		{wpAuthzChecker, "own nonce helper", "ajax.php", `<?php
+add_action('wp_ajax_nopriv_api', 'api');
+function api() {
+    tutor_utils()->checking_nonce();
+    update_option('x', 1);
+}`, false},
+		{wpAuthzChecker, "guest write with no check still counts", "ajax.php", `<?php
+add_action('wp_ajax_nopriv_api', 'api');
+function api() {
+    update_option('x', $_POST['x']);
+}`, true},
 		{"prefix-containment", "name already checked by an anchored regex", "backups.js", `
 app.get("/backups/:name", (req, res) => {
   const name = req.params.name;

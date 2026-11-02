@@ -75,7 +75,7 @@ type scanOpts struct {
 
 // scanEngine goes up whenever the scanner, sink profiles or checkers change what a scan finds,
 // so the next run rescans repos whose stored scan is older even if their code hasn't moved.
-const scanEngine = 8
+const scanEngine = 9
 
 // maxLibFindingsPerRepo caps library-mode findings, apart from the others (maxFindingsPerRepo).
 const maxLibFindingsPerRepo = 25

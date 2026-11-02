@@ -52,6 +52,7 @@ Done so far:
 - **14 (library)**: drop-in folders, builders, live tests, settings screen.
 - **4c (variant feed)**: a daily check inside sift turns new advisories with a fix that touches a checker sink into variant hunts.
 - **17 (bench)** and **12 layer 3**: 1,842 fixed advisories score every checker change. Library mode, input-aware guards, same-file helpers and four new checkers (route auth gaps, prototype pollution, open redirect, template injection) took real-bug recall from 1% to 9%.
+- **Third review round** (engine 7-9, full rescan): quoted array keys, upload temp paths, `Depends()` values, whole request objects, non-HTTP `request` params, bound SQL parameters and secret-compare auth stopped firing. Repos with a high or confirmed finding went from 205 to 145; the bench lost one accidental catch (157 to 156).
 
 Next, in order:
 1. **15 (impact + CVE-ready)**, then **10 (fresh surface)** as a sortable view, then **16 (report drafts)**.

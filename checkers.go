@@ -724,9 +724,9 @@ func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Fi
 var (
 	wpAjaxRe     = regexp.MustCompile(`add_action\(\s*['"]wp_ajax_(nopriv_)?[\w-]+['"]\s*,\s*([^;]+?)\)\s*;`)
 	wpQuotedRe   = regexp.MustCompile(`['"](\w+)['"]`)
-	// the last three: a secret stored with the object and compared, which is how guests get to
-	// act on their own upload or order
-	wpAuthRe     = regexp.MustCompile(`current_user_can\(|check_ajax_referer\(|wp_verify_nonce\(|check_admin_referer\(|user_can\(|hash_equals\(|[!=]==?\s*get_(post|user|term|comment)_meta\([^;]*(key|token|secret|hash)|get_(post|user|term|comment)_meta\([^;]*(key|token|secret|hash)[^;]*\)\s*[!=]==?`)
+	// after the nonce names: a secret stored with the object or the site and compared, which is
+	// how guests get to act on their own upload or follow an unsubscribe link
+	wpAuthRe     = regexp.MustCompile(`current_user_can\(|check_ajax_referer\(|wp_verify_nonce\(|check_admin_referer\(|user_can\(|\w*(check|verify)\w*nonce\w*\(|hash_equals\(|[!=]==?\s*get_(post_meta|user_meta|term_meta|comment_meta|option)\([^;]*(key|token|secret|hash)|get_(post_meta|user_meta|term_meta|comment_meta|option)\([^;]*(key|token|secret|hash)[^;]*\)\s*[!=]==?|\$\w*(token|secret)\w*\s*[!=]==?\s*\$_(GET|POST|REQUEST)`)
 	wpWritesRe   = regexp.MustCompile(`\b(update_option|add_option|delete_option|update_site_option|wp_insert_\w+|wp_update_\w+|wp_delete_\w+|wp_trash_post|update_(user|post|term|comment)_meta|add_(user|post)_meta|delete_(user|post)_meta|wp_set_\w+|set_role|add_role|add_cap|wp_create_user|move_uploaded_file|file_put_contents|unlink|wp_mail|switch_theme|activate_plugin)\s*\(|\$wpdb->(query|insert|update|delete|replace)\(`)
 	wpRestRe     = regexp.MustCompile(`register_rest_route\(`)
 	wpPublicPerm = regexp.MustCompile(`['"]permission_callback['"]\s*=>\s*['"]__return_true['"]`)
