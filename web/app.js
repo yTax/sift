@@ -288,6 +288,7 @@ function findingsCard(repo) {
     sc.semgrep ? h("p", { class: "muted" }, sc.semgrep.error ? "Semgrep: " + sc.semgrep.error
       : "Semgrep checked " + sc.semgrep.files + " file(s) " + ago(sc.semgrep.at) + ": " + list.filter((f) => f.confirmed).length + " confirmed.") : null,
     h("p", { class: "muted" }, "Text-level checks, not proof. Each one says which input reached which call; confirm by reading the function."),
+    sc.last_error ? h("p", null, h("span", { class: "chip warn" }, "older result"), " The last scan failed, so this is from an earlier one: " + sc.last_error) : null,
     h("ul", { class: "plain" }, causes.map((g) => h("li", null,
       findingItem(repo, g[0]),
       g.length > 1 ? h("details", null,

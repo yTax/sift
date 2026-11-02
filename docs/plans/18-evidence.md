@@ -34,7 +34,15 @@ Each finding gets a `group`: findings through the same helper, the same input in
 - A cause counts once, at its strongest finding; later causes count less (×0.7 each), so the third is worth about half the first.
 - The total is multiplied by 0.6 + 0.4 × (findings part ÷ 10). A repo with many sinks and no finding tops out at 60; volume alone can't reach the top.
 
+## F. Validators called on their own
+
+A function called as its own statement can only refuse, so `requireServer(id);` or `_validate_service_id(x)` before a sink counts as a guard when the same file shows it throwing, and either its body holds a checker guard or its name says it validates. A name alone isn't enough: `validateUrl()` is often the weak code the advisory is about.
+
+Tried and dropped: treating a URL variable as safe when it was assigned from a fixed base. It lost three real SSRF catches on the bench and didn't silence the false alarm it was for.
+
 ## Later
+
+- Validators in another file. Only one known false alarm needs them so far; the rest were same-file.
 
 - Mark a single finding real or dud in the panel, which adds a label and feeds plan 13.
 - Read the repo's file list for a Next `middleware.ts`, to silence `unprotected-proxy` when one covers the route.

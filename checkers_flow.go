@@ -217,7 +217,7 @@ func (fc *fileCtx) scan(f fnSpan, c *Checker, t taintState, hs *helperSet, summa
 			if guardAt >= 0 {
 				continue
 			}
-		} else if fc.guarded(l, f, i, t) {
+		} else if fc.guarded(l, f, i, t) || hs.gated(fc, f, i, t) {
 			continue
 		}
 		out = append(out, sinkHit{line: i, via: via, conf: conf, w: w, passes: passes})
@@ -324,6 +324,38 @@ type wrapper struct {
 type helperSet struct {
 	cleaners []*regexp.Regexp
 	wrappers []*wrapper
+	gates    []*regexp.Regexp // validators called for their throw: requireServer(id);
+}
+
+var (
+	// a function that stops the request when its argument is bad, by name and by body. The name
+	// alone was tried and lost real bugs: validateUrl() is often the weak code an advisory is about.
+	gateName  = regexp.MustCompile(`(?i)^_*(require|validate|assert|ensure|verify|check|must)_?[a-z]`)
+	gateThrow = regexp.MustCompile(`\b(throw|raise|abort\(|wp_die\(|die\(|exit\()`)
+)
+
+const maxGateLines = 40
+
+// gated reports whether a gate ran on the input earlier in the function, as a statement of its
+// own. Its result isn't used, so all it can do is refuse.
+func (hs *helperSet) gated(fc *fileCtx, f fnSpan, i int, t taintState) bool {
+	if hs == nil || len(hs.gates) == 0 {
+		return false
+	}
+	for j := f.start; j < i; j++ {
+		line := fc.lines[j]
+		if !anyMatch(hs.gates, line) {
+			continue
+		}
+		if mentionsName(line, t.tainted) || fc.source != nil && fc.source.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func gateRe(name string) *regexp.Regexp {
+	return regexp.MustCompile(`^\s*(?:await\s+)?(?:self\.|this\.|\$this->|self::|static::)?` + regexp.QuoteMeta(name) + `\s*\(`)
 }
 
 func (hs *helperSet) cleans(args string) bool {
@@ -392,8 +424,17 @@ func (fc *fileCtx) helpers(fns []fnSpan, active []*Checker) map[string]*helperSe
 				continue
 			}
 			body := strings.Join(fc.lines[g.start:g.end+1], "\n")
+			// a URL validator is often the weak code an advisory is about, so SSRF gets no gates
+			throws := c.Class != "ssrf" && g.end-g.start <= maxGateLines && gateThrow.MatchString(body)
 			if g.end-g.start <= maxCleanerLines && (anyMatch(l.guards, body) || anyMatch(l.lineGuards, body)) {
 				hs.cleaners = append(hs.cleaners, callRe(g.name))
+				if throws {
+					hs.gates = append(hs.gates, gateRe(g.name))
+				}
+				continue
+			}
+			if throws && gateName.MatchString(g.name) && !l.any.MatchString(body) {
+				hs.gates = append(hs.gates, gateRe(g.name))
 				continue
 			}
 			if l.NoInput || len(g.inputs) > 0 || len(g.params) == 0 || len(g.params) > 8 ||

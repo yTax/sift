@@ -92,6 +92,7 @@ type ScanResult struct {
 	Hits          []Hit          `json:"hits,omitempty"`
 	Truncated     bool           `json:"truncated"`
 	Error         string         `json:"error,omitempty"`
+	LastError     string         `json:"last_error,omitempty"` // the latest scan failed; these results are older
 	Engine        int            `json:"engine"` // scanEngine that produced this; older ones get rescanned
 	// Pairing: files where input enters (surface) and a sink sits in the same file.
 	PairedFiles  int       `json:"paired_files"`

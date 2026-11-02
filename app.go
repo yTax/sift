@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -80,6 +81,7 @@ type Progress struct {
 
 type App struct {
 	base, dorksDir, sinksDir, dataDir, tmpDir string
+	lowDisk                                   atomic.Bool
 
 	settings *SettingsStore
 	store    *Store
@@ -404,6 +406,10 @@ func (a *App) run(ctx context.Context, opts RunOpts) {
 	if stages["scan"] {
 		rec.Scanned = a.stageScan(ctx, h, working, catMap, profiles, s, opts.Force)
 		if ctx.Err() != nil {
+			return
+		}
+		if a.lowDisk.Load() {
+			outcome = "stopped: disk is full"
 			return
 		}
 		a.Rescore() // Semgrep picks the top N by score
@@ -824,6 +830,33 @@ func buildEnrichment(g *gqlRepo, pvr *bool, adv int) *Enrichment {
 
 // ---------- stage 3: scan ----------
 
+// minFreeDisk is what a scan leaves free: downloads, Semgrep's checkouts and the database's
+// log all need room, and the machine needs some too.
+const minFreeDisk = 1500 << 20
+
+// checkDisk stops the scan when the disk is nearly full, instead of failing every repo after it.
+func (a *App) checkDisk() bool {
+	free := freeDisk(a.dataDir)
+	if free < 0 || free >= minFreeDisk {
+		return false
+	}
+	if a.lowDisk.CompareAndSwap(false, true) {
+		a.warnf("scan: stopping, only %d MB free on this disk; earlier results are kept", free>>20)
+	}
+	return true
+}
+
+// keepGoodScan keeps what a repo already has when a new scan fails: a full disk or a dead link
+// says nothing about the code. The old engine number stays, so the next run tries again.
+func keepGoodScan(prev, res *ScanResult) *ScanResult {
+	if res.Error == "" || prev == nil || prev.Error != "" {
+		return res
+	}
+	kept := *prev
+	kept.LastError = res.Error
+	return &kept
+}
+
 func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap map[string]*Category, profiles []*SinkProfile, s Settings, force bool) int {
 	if !s.ScanEnabled {
 		a.logf("scan: turned off in Settings")
@@ -881,6 +914,7 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 		return 0
 	}
 	a.logf("scan: downloading and grepping %d repos (%d at a time)", len(targets), max(1, s.Concurrency))
+	a.lowDisk.Store(false)
 	maxBytes := int64(s.MaxRepoSizeMB) << 20
 	checkers, chErrs := a.checkers()
 	for _, e := range chErrs {
@@ -894,12 +928,17 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 	sem := make(chan struct{}, max(1, s.Concurrency))
 	var wg sync.WaitGroup
 	for _, t := range targets {
-		if ctx.Err() != nil {
+		if ctx.Err() != nil || a.lowDisk.Load() {
 			break
 		}
 		t := t
 		wg.Add(1)
 		sem <- struct{}{}
+		if a.checkDisk() {
+			<-sem
+			wg.Done()
+			break
+		}
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -926,7 +965,7 @@ func (a *App) stageScan(ctx context.Context, h *HTTP, working []string, catMap m
 			if ctx.Err() != nil {
 				return
 			}
-			a.store.With(func(repos map[string]*Repo) { repos[t.key].Scan = res })
+			a.store.With(func(repos map[string]*Repo) { repos[t.key].Scan = keepGoodScan(repos[t.key].Scan, res) })
 			mu.Lock()
 			done++
 			if res.Error == "" {

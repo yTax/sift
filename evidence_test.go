@@ -12,6 +12,68 @@ func init() {
 		checker, name, file, src string
 		want                     bool
 	}{
+		{"tool-path-to-fs", "gate on the input before the sink", "api.js", `
+function requireServer(id) {
+  const s = servers.get(id);
+  if (!s) throw new Error("not found");
+}
+app.get("/logs/:id", (req, res) => {
+  requireServer(req.params.id);
+  res.sendFile(req.params.id);
+});`, false},
+		{"tool-path-to-fs", "gate on something else", "api.js", `
+function requireServer(id) {
+  const s = servers.get(id);
+  if (!s) throw new Error("not found");
+}
+app.get("/logs/:sid", (req, res) => {
+  requireServer(SERVER_ID);
+  res.sendFile(req.query.file);
+});`, true},
+		{"tool-path-to-fs", "gate after the sink", "api.js", `
+function requireServer(id) {
+  if (!servers.get(id)) throw new Error("not found");
+}
+app.get("/logs/:id", (req, res) => {
+  res.sendFile(req.params.id);
+  requireServer(req.params.id);
+});`, true},
+		{"tool-path-to-fs", "a function that only happens to throw isn't a gate", "api.js", `
+function saveAudit(id) {
+  if (!db.ok) throw new Error("db down");
+}
+app.get("/logs/:id", (req, res) => {
+  saveAudit(req.params.id);
+  res.sendFile(req.params.id);
+});`, true},
+		{"tool-path-to-fs", "python validator with a regex, called alone", "ext.py", `
+from fastapi import APIRouter
+def _validate_service_id(service_id):
+    if not _SERVICE_ID_RE.match(service_id):
+        raise HTTPException(status_code=404)
+@router.post("/x/{service_id}")
+def x(service_id: str):
+    _validate_service_id(service_id)
+    return open(service_id).read()
+`, false},
+		{"tool-path-to-fs", "python join helper with a prefix check", "edit.py", `
+from flask import request
+def _safe_join(base, rel):
+    full = os.path.abspath(os.path.join(base, rel))
+    if not full.startswith(base + os.sep):
+        raise ValueError("escape")
+    return full
+def apply():
+    target = _safe_join(ROOT, request.form["rel"])
+    os.remove(target)
+`, false},
+		{"tool-path-to-fs", "js regex exec keeps only the match", "emote.js", `
+app.get("/e/:file", (req, res) => {
+  const m = /^(\d+)\.png$/.exec(String(req.params.file));
+  if (!m) return res.status(400).end();
+  const full = path.join(DIR, m[0]);
+  res.sendFile(full);
+});`, false},
 		{proxyChecker, "next catch-all adds a service token and checks nobody", "app/api/agent/[...path]/route.ts", `
 const API = process.env.AGENT_URL;
 const TOKEN = process.env.AGENT_TOKEN || "";
@@ -116,6 +178,34 @@ def view():
 `, "tool-path-to-fs")
 	if len(tr) != 2 || tr[0].Kind != "call" || tr[1].Kind != "sink" || !strings.Contains(tr[1].Text, "open(p)") {
 		t.Errorf("trace = %+v", tr)
+	}
+}
+
+func TestKeepGoodScan(t *testing.T) {
+	good := &ScanResult{Ref: "a", Engine: 7, Findings: []Finding{{Checker: "c"}}}
+	failed := &ScanResult{Ref: "b", Error: "write: no space left on device"}
+	got := keepGoodScan(good, failed)
+	if len(got.Findings) != 1 || got.Error != "" || got.LastError == "" || got.Engine != 7 || got.Ref != "a" {
+		t.Errorf("a failed scan should keep the good one: %+v", got)
+	}
+	if good.LastError != "" {
+		t.Error("changed the stored result in place")
+	}
+	if got := keepGoodScan(nil, failed); got != failed {
+		t.Errorf("nothing to keep: %+v", got)
+	}
+	if got := keepGoodScan(&ScanResult{Error: "old"}, failed); got != failed {
+		t.Errorf("an old failure isn't worth keeping: %+v", got)
+	}
+	fresh := &ScanResult{Ref: "c"}
+	if got := keepGoodScan(good, fresh); got != fresh {
+		t.Errorf("a good scan replaces the old one: %+v", got)
+	}
+}
+
+func TestFreeDisk(t *testing.T) {
+	if freeDisk(t.TempDir()) <= 0 {
+		t.Error("no free space read")
 	}
 }
 

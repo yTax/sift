@@ -18,7 +18,7 @@ langs:
       - '\b(validate|sanitize|check|verify|assert|ensure|resolveSafe|safe)\w*(Path|File|Dir)\w*\('
       - 'includes\(\s*[''"`]\.\.[''"`]\s*\)'
       - 'allowedDirectories|allowedPaths|allowedRoots'
-      - '/\^[^/\n]*\$/[a-z]*\.test\('
+      - '/\^[^/\n]*\$/[a-z]*\.(test|exec)\('
       - '\b_?[A-Z][A-Z0-9_]{2,}\.(includes|has)\('
   python:
     arg: first
@@ -30,6 +30,7 @@ langs:
       - '\baiofiles\.open\('
     guards:
       - 'os\.path\.(commonpath|commonprefix|realpath)'
+      - '\.startswith\([^)]*(os\.sep|[''"]/[''"])'
       - '\.resolve\(\)'
       - 'is_relative_to\(|relative_to\('
       - 'secure_filename\('
