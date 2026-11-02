@@ -20,9 +20,9 @@ var (
 	routeHint = regexp.MustCompile("\\.(get|post|put|patch|delete)\\(\\s*['\"`]/|@\\s*[\\w.]+\\.(get|post|put|patch|delete|route)\\(")
 
 	// auth on the registration: middleware names, FastAPI dependencies, decorators
-	authWordRe = regexp.MustCompile(`(?i)authenticat|authoriz|\b(is|ensure|check|verify|require|with|has)_?auth|auth_?(middleware|required|guard|check|user)|\bauth(ed|enticated)?\b|login_?required|logged_?in|\bjwt|bearer|api_?key|current_?(user|account|admin)|get_current_\w+|require_?(user|admin|role|scope|login|session|permission)|is_?admin|admin_?(only|required)|permission|\bguard|protect|rbac|\bacl\b|oauth2_scheme|verify_?\w*token|token_?required`)
+	authWordRe = regexp.MustCompile(`(?i)authenticat|authoriz|\b(is|ensure|check|verify|require|with|has)_?auth|auth_?(middleware|required|guard|check|user)|\bauth(ed|enticated)?\b|login_?required|logged_?in|\bjwt|bearer|require_?\w*token|\bSecurity\(|api_?key|current_?(user|account|admin)|get_current_\w+|require_?(user|admin|role|scope|login|session|permission)|is_?admin|admin_?(only|required)|permission|\bguard|protect|rbac|\bacl\b|oauth2_scheme|verify_?\w*token|token_?required`)
 	// auth done inside the handler
-	authBodyRe = regexp.MustCompile(`(?i)\breq(uest)?\.(user|auth|session\.user)\b|current_user|status(_code)?\s*[=(:]\s*40[13]\b|\b40[13]\b\s*[,)]|abort\(\s*40[13]|Unauthorized|Forbidden|isAuthenticated|getServerSession|auth\(\)`)
+	authBodyRe = regexp.MustCompile(`(?i)\breq(uest)?\.(user|auth|session\.user)\b|current_user|status(_code)?\s*[=(:]\s*40[13]\b|\b40[13]\b\s*[,)]|abort\(\s*40[13]|Unauthorized|Forbidden|isAuthenticated|getServerSession|auth\(\)|(require|verify|check)_?\w*token\(|\b_?(require|ensure|check|verify)_(admin|auth|user|login|role|permission)\w*\(`)
 	// router-wide auth covers every route in the file
 	jsRouterAuth = regexp.MustCompile(`\.use\(([^)]*)\)`)
 	pyRouterAuth = regexp.MustCompile(`(?s)(APIRouter|FastAPI)\([^)]*dependencies\s*=\s*\[[^\]]*\]|add_middleware\(\s*\w*Auth|before_request`)

@@ -9,6 +9,151 @@ func init() {
 		checker, name, file, src string
 		want                     bool
 	}{
+		// --- false positives from the engine 6 rescan ---
+		{"prefix-containment", "name already checked by an anchored regex", "backups.js", `
+app.get("/backups/:name", (req, res) => {
+  const name = req.params.name;
+  if (!/^[\w.-]+\.zip$/.test(name)) return res.status(400).end();
+  const full = path.join(BACKUP_DIR, name);
+  if (!full.startsWith(BACKUP_DIR)) return res.status(404).end();
+  res.download(full);
+});`, false},
+		{"tool-path-to-fs", "path picked from the app's own table", "assets.js", `
+app.get("/assets/:id", (req, res) => {
+  const assetPath = localAssets[req.params.id];
+  res.sendFile(assetPath);
+});`, false},
+		{"tool-path-to-fs", "the request's value itself still counts", "assets.js", `
+app.get("/assets", (req, res) => {
+  const assetPath = req.query["file"];
+  res.sendFile(assetPath);
+});`, true},
+		{routeAuthChecker, "admin check inside the handler", "store.py", `
+from fastapi import APIRouter, Depends
+router = APIRouter()
+@router.get("/api/a", dependencies=[])
+async def a(request: Request, _: None = Depends(get_current_user)):
+    return 1
+@router.get("/api/b", dependencies=[])
+async def b(request: Request, _: None = Depends(get_current_user)):
+    return 1
+@router.post("/api/submissions/{sid}/approve")
+async def approve(request: Request, sid: str):
+    ok, err = _require_admin(request)
+    return 1
+`, false},
+		{"tool-path-to-fs", "php array key called include", "rest.php", `<?php
+function list_items($request) {
+    $args = array('post__in' => $request['include']);
+    return get_posts($args);
+}`, false},
+		{"tool-path-to-fs", "php include of a request value still counts", "view.php", `<?php
+function render() {
+    include($_GET['page']);
+}`, true},
+		{"tool-path-to-fs", "php reads the upload's temp file", "import.php", `<?php
+function import_settings() {
+    $json = file_get_contents($_FILES['settings_file']['tmp_name']);
+    return json_decode($json);
+}`, false},
+		{"tool-path-to-fs", "php temp file through a variable", "import.php", `<?php
+function import_settings() {
+    $tmp = sanitize_text_field($_FILES['f']['tmp_name']);
+    return file_get_contents($tmp);
+}`, false},
+		{"tool-path-to-fs", "php copies to the client's file name", "upload.php", `<?php
+function upload() {
+    copy($_FILES['f']['name'], '/tmp/out');
+}`, true},
+		{"tool-path-to-fs", "php request value object", "Adapter.php", `<?php
+class Adapter {
+    public function extract(ExtractionRequest $request) {
+        return file_get_contents($request->absolutePath);
+    }
+}`, false},
+		{"tool-path-to-fs", "php wp rest request still counts", "rest.php", `<?php
+function dl(WP_REST_Request $request) {
+    return file_get_contents($request['path']);
+}`, true},
+		{"tool-path-to-fs", "python request dataclass outside a web app", "worker.py", `
+def _write(request: CalibrationRequest):
+    Path(request.cache_dir).write_text("x")
+`, false},
+		{"tool-path-to-fs", "python django view still counts", "views.py", `
+from django.http import HttpResponse
+def download(request):
+    return HttpResponse(open(request.GET["name"]).read())
+`, true},
+		{"fetch-from-input", "urllib request object in a client helper", "client.py", `
+import urllib.request
+def _open(request, timeout):
+    return urllib.request.urlopen(request, timeout=timeout)
+`, false},
+		{"redirect-from-input", "depends-injected storage is no input", "routes.py", `
+from fastapi import Depends
+from fastapi.responses import RedirectResponse
+@router.get("/pkg/{name}")
+async def pkg(name: str, storage: Store = Depends(get_storage)):
+    return RedirectResponse(storage)
+`, false},
+		{"tool-path-to-fs", "whole request handed to a helper", "routes.py", `
+from fastapi import Request
+def read_cfg(request: Request):
+    return open(root_of(request)).read()
+`, false},
+		{"sql-from-input", "order_by checked against a constant", "albums.py", `
+from flask import request
+def albums(conn):
+    order = request.args.get("order")
+    order = order if order in VALID_SORT_COLS else "id"
+    return conn.execute(f"SELECT * FROM albums ORDER BY {order}")
+`, false},
+		{"sql-from-input", "order_by not checked", "albums.py", `
+from flask import request
+def albums(conn):
+    order = request.args.get("order")
+    return conn.execute(f"SELECT * FROM albums ORDER BY {order}")
+`, true},
+		{"sql-from-input", "built value is a bound parameter", "search.py", `
+from flask import request
+def search(conn):
+    q = request.args.get("q")
+    like = f"%{q}%"
+    return conn.execute("SELECT * FROM a WHERE name LIKE ?", (like,))
+`, false},
+		{"sql-from-input", "js placeholders built from the input's length", "users.js", `
+app.post("/users", (req, res) => {
+  const ids = req.body.ids;
+  const marks = ids.map(() => '?').join(',');
+  res.json(db.prepare(` + "`SELECT * FROM users WHERE id IN (${marks})`" + `).all(...ids));
+});`, false},
+		{"sql-from-input", "python placeholders built from the input's length", "users.py", `
+from flask import request
+def users(conn):
+    ids = request.json["ids"]
+    marks = ",".join("?" * len(ids))
+    return conn.execute(f"SELECT * FROM users WHERE id IN ({marks})", ids)
+`, false},
+		{routeAuthChecker, "bridge read route without the sibling routes' token", "bridge.py", `
+from fastapi import FastAPI, Depends
+app = FastAPI()
+@app.post("/exec")
+async def run(req: Exec, _: None = Depends(_require_token)):
+    return 1
+@app.post("/files/write")
+async def write(req: W, _: None = Depends(_require_token)):
+    return 1
+@app.post("/files/read")
+async def read(req: R):
+    return 1
+`, true},
+		{wpAuthzChecker, "guest delete checks the upload's secret key", "media.php", `<?php
+add_action('wp_ajax_nopriv_del_media', 'del_media');
+function del_media() {
+    if ($_POST['key'] === get_post_meta((int) $_POST['id'], 'upload_key', true)) {
+        wp_delete_attachment((int) $_POST['id']);
+    }
+}`, false},
 		// --- library mode: an exported function's arguments are the input ---
 		{"shell-from-input", "exported js function runs its argument through a shell", "index.js", `
 const { execSync } = require("child_process");

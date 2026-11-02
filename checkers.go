@@ -193,14 +193,22 @@ var (
 	jsInputNames = map[string]bool{"req": true, "request": true}
 	jsHandlerSig = regexp.MustCompile(`\b(res|reply|next)\b|:\s*\w*Request\b|NextRequest|FastifyRequest`)
 	jsVerbName   = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
-	jsKeywords   = map[string]bool{"if": true, "for": true, "while": true, "switch": true, "catch": true, "function": true, "return": true, "with": true}
+	jsKeywords   = map[string]bool{"if": true, "elseif": true, "for": true, "foreach": true, "while": true, "switch": true, "catch": true, "function": true, "return": true, "with": true}
 
 	pyHead     = regexp.MustCompile(`(?m)^([ \t]*)(?:async[ \t]+)?def[ \t]+(\w+)[ \t]*\(`)
 	pyRegister = regexp.MustCompile(`^\s*@\s*[\w.]*\.?(tool|get|post|put|patch|delete|route|api_route|websocket|call_tool|resource|prompt)\b`)
 	pyInputs   = map[string]bool{"request": true}
+	// a parameter named request is only an HTTP request in a web app: elsewhere it's urllib's
+	// Request or the app's own dataclass. In a web app a typed one is the parsed body, passed on
+	// from the route.
+	pyWebImport = regexp.MustCompile(`(?m)^\s*(from|import)\s+(django|flask|fastapi|starlette|sanic|tornado|rest_framework|quart|bottle|pyramid|litestar|falcon|ninja|aiohttp\.web)\b|^\s*from\s+aiohttp\s+import\s+.*\bweb\b`)
+	pyInjected  = regexp.MustCompile(`^\s*(\w+)\s*(:.*)?=\s*(\w+\.)?(Depends|Security)\(|^\s*(\w+)\s*:\s*(\w+\.)?Annotated\[.*\b(Depends|Security)\(`)
 
 	goHead  = regexp.MustCompile(`func\s*(?:\([^)]*\)\s*)?(\w*)\s*\(([^)]*)\)`)
 	phpHead = regexp.MustCompile(`\bfunction\s*&?\s*(\w*)\s*\(([^)]*)\)`)
+	// an HTTP request's class; ExtractionRequest $request is the app's own value object
+	phpReqType     = regexp.MustCompile(`([\\\w]+)\s+&?\$(?:request|req)\b`)
+	phpHTTPRequest = regexp.MustCompile(`(^|\\)(WP_REST_Request|Request|ServerRequest|ServerRequestInterface|RequestInterface|HttpRequest|FormRequest)$`)
 	// framework contexts and MCP tool requests are always inbound; *http.Request only counts next
 	// to a ResponseWriter, since client code passes outbound requests around too
 	goInputType = regexp.MustCompile(`gin\.Context|echo\.Context|fiber\.Ctx|CallToolRequest|mcp\.\w*Request`)
@@ -230,10 +238,10 @@ var checkerSources = map[string]*regexp.Regexp{
 // cleaners: an assignment whose value starts with one of these (numeric casts and the like)
 // produces a value that can't carry an injection, so it isn't tainted.
 var checkerCleaners = map[string]*regexp.Regexp{
-	"js-ts":  regexp.MustCompile(`^\s*(await\s+)?(parseInt|parseFloat|Number|Boolean|Math\.\w+)\(`),
-	"python": regexp.MustCompile(`^\s*(int|float|bool|len)\(`),
+	"js-ts":  regexp.MustCompile("^\\s*(await\\s+)?(parseInt|parseFloat|Number|Boolean|Math\\.\\w+)\\(|\\.map\\(\\s*\\(?[\\w, ]*\\)?\\s*=>\\s*['\"`]\\?['\"`]|\\.fill\\(\\s*['\"`]\\?['\"`]|^\\s*[A-Za-z_$][\\w$.]*\\[\\s*(req|request|ctx)\\.[\\w.]+\\s*\\]\\s*;?\\s*$"),
+	"python": regexp.MustCompile(`^\s*(int|float|bool|len)\(|['"]\s*(\?|%s)\s*,?\s*['"]\s*(\*|for\b)|\[\s*['"](\?|%s)['"]\s*\]\s*\*`),
 	"go":     regexp.MustCompile(`^\s*strconv\.(Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(`),
-	"php":    regexp.MustCompile(`^\s*(\(int\)|\(float\)|\(bool\)|intval\(|absint\(|floatval\(|boolval\(|sanitize_key\(|count\(|is_numeric\()`),
+	"php":    regexp.MustCompile(`^\s*(\(int\)|\(float\)|\(bool\)|intval\(|absint\(|floatval\(|boolval\(|sanitize_key\(|count\(|is_numeric\()|\[\s*['"]tmp_name['"]\s*\]|array_fill\(.*['"](%[ds]|\?)['"]`),
 }
 
 // interpRes are templates for "name is pasted into a string here"; NAME is replaced per name.
@@ -390,8 +398,12 @@ func braceFunctions(src string, starts []int, lang string) []fnSpan {
 			}
 		case "php":
 			// WordPress REST callbacks get a WP_REST_Request; most other handlers read superglobals (sources)
+			httpReq := true
+			if m := phpReqType.FindStringSubmatch(params); m != nil {
+				httpReq = phpHTTPRequest.MatchString(m[1]) || strings.Contains(src, `\Http\Requests\`)
+			}
 			for _, n := range paramNames(params) {
-				if n == "$request" || n == "$req" {
+				if httpReq && (n == "$request" || n == "$req") {
 					f.inputs = append(f.inputs, n)
 				}
 			}
@@ -437,6 +449,10 @@ func pyTypedSafe(params string) map[string]bool {
 		if m := pyParamType.FindStringSubmatch(piece); m != nil && pySafeType.MatchString(strings.TrimSpace(m[2])) {
 			safe[m[1]] = true
 		}
+		// Depends() is filled in by the server: a database session, a storage client
+		if m := pyInjected.FindStringSubmatch(piece); m != nil {
+			safe[m[1]+m[5]] = true
+		}
 	}
 	for i, c := range params {
 		switch c {
@@ -457,6 +473,7 @@ func pyTypedSafe(params string) map[string]bool {
 
 func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 	var out []fnSpan
+	web := pyWebImport.MatchString(src)
 	for _, m := range pyHead.FindAllStringSubmatchIndex(src, -1) {
 		indent := len(src[m[2]:m[3]])
 		name := src[m[4]:m[5]]
@@ -500,7 +517,7 @@ func pythonFunctions(src string, lines []string, starts []int) []fnSpan {
 			if n == "ctx" || n == "context" || safe[n] {
 				continue
 			}
-			if registered || pyInputs[n] {
+			if registered || pyInputs[n] && web {
 				f.inputs = append(f.inputs, n)
 			}
 		}
@@ -545,14 +562,32 @@ var (
 // multer picked for an upload, the logged-in user, the session.
 var serverSet = regexp.MustCompile(`^\.(file|files|user|session|app|ip|ips|method|protocol|log|id|auth|locals)\b`)
 
+// requestNames are the receivers serverSet is about: a tool's args.file is the caller's value.
+var requestNames = map[string]bool{"req": true, "request": true, "ctx": true, "context": true, "c": true, "r": true, "event": true}
+
 func containsName(s string, names map[string]bool) string {
 	for _, loc := range identRe.FindAllStringIndex(s, -1) {
 		id := s[loc[0]:loc[1]]
-		if names[id] && !serverSet.MatchString(s[loc[1]:]) {
+		// self.path and urllib.request are members, not the variable; ...args and PHP's "a".$b are
+		if loc[0] > 0 && s[loc[0]-1] == '.' && id[0] != '$' && !strings.HasSuffix(s[:loc[0]], "...") {
+			continue
+		}
+		if names[id] && !(requestNames[id] && serverSet.MatchString(s[loc[1]:])) {
 			return id
 		}
 	}
 	return ""
+}
+
+// mentionsName is containsName for guards, where a member counts too: a check on self.path
+// usually is the check on path.
+func mentionsName(s string, names map[string]bool) bool {
+	for _, id := range identRe.FindAllString(s, -1) {
+		if names[id] {
+			return true
+		}
+	}
+	return false
 }
 
 // runCheckers returns the findings for one file, the strongest few.
@@ -689,7 +724,9 @@ func checkFileLib(name string, b []byte, checkers []*Checker, library bool) []Fi
 var (
 	wpAjaxRe     = regexp.MustCompile(`add_action\(\s*['"]wp_ajax_(nopriv_)?[\w-]+['"]\s*,\s*([^;]+?)\)\s*;`)
 	wpQuotedRe   = regexp.MustCompile(`['"](\w+)['"]`)
-	wpAuthRe     = regexp.MustCompile(`current_user_can\(|check_ajax_referer\(|wp_verify_nonce\(|check_admin_referer\(|user_can\(`)
+	// the last three: a secret stored with the object and compared, which is how guests get to
+	// act on their own upload or order
+	wpAuthRe     = regexp.MustCompile(`current_user_can\(|check_ajax_referer\(|wp_verify_nonce\(|check_admin_referer\(|user_can\(|hash_equals\(|[!=]==?\s*get_(post|user|term|comment)_meta\([^;]*(key|token|secret|hash)|get_(post|user|term|comment)_meta\([^;]*(key|token|secret|hash)[^;]*\)\s*[!=]==?`)
 	wpWritesRe   = regexp.MustCompile(`\b(update_option|add_option|delete_option|update_site_option|wp_insert_\w+|wp_update_\w+|wp_delete_\w+|wp_trash_post|update_(user|post|term|comment)_meta|add_(user|post)_meta|delete_(user|post)_meta|wp_set_\w+|set_role|add_role|add_cap|wp_create_user|move_uploaded_file|file_put_contents|unlink|wp_mail|switch_theme|activate_plugin)\s*\(|\$wpdb->(query|insert|update|delete|replace)\(`)
 	wpRestRe     = regexp.MustCompile(`register_rest_route\(`)
 	wpPublicPerm = regexp.MustCompile(`['"]permission_callback['"]\s*=>\s*['"]__return_true['"]`)

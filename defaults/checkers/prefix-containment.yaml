@@ -16,6 +16,7 @@ langs:
       - 'path\.relative\('
       - '\+\s*path\.sep|\+\s*[''"`]/[''"`]|path\.sep\s*\)'
       - 'endsWith\(\s*path\.sep|endsWith\(\s*[''"`]/[''"`]'
+      - '/\^[^/\n]*\$/[a-z]*\.test\('
   python:
     no_input: true
     sinks:

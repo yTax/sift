@@ -8,18 +8,25 @@ message: Handler input is pasted into a SQL string instead of being passed as a 
 langs:
   js-ts:
     interpolated: true
+    arg: first
     sinks:
       - '\b(db|conn|connection|pool|client|knex|sequelize|prisma|database|sql|sqlite|mysql|pg|tx|trx|stmt)\.(query|raw|execute|exec|run|all|get|each|prepare|unsafe|queryRaw\w*|executeRaw\w*|\$queryRawUnsafe|\$executeRawUnsafe)\('
       - '\$(queryRawUnsafe|executeRawUnsafe)\('
       - '\.whereRaw\(|\.orderByRaw\(|\.havingRaw\('
+    guards:
+      - '\b_?[A-Z][A-Z0-9_]{2,}\.(includes|has)\(|\b_?[A-Z][A-Z0-9_]{2,}\['
     requires:
       - '(?i)\b(select\s[\s\S]{0,200}\sfrom|insert\s+into|update\s+[\w`"]+\s+set|delete\s+from|order\s+by|where\s)'
   python:
     interpolated: true
+    arg: first
     sinks:
       - '\b(cursor|cur|conn|connection|db|session|engine|c)\.(execute|executemany|executescript|exec_driver_sql)\('
       - '\btext\(|\.raw\(|\.extra\('
       - '\bpd\.read_sql(_query)?\('
+    guards:
+      - '\bin\s+_?[A-Z][A-Z0-9_]{2,}\b|(?i)\bin\s+(self\.)?_?\w*(allowed|valid|whitelist|allowlist|sortable)\w*'
+      - '\b_?[A-Z][A-Z0-9_]{2,}(\.get\(|\[)'
     requires:
       - '(?i)\b(select\s[\s\S]{0,200}\sfrom|insert\s+into|update\s+\w+\s+set|delete\s+from|order\s+by|where\s)'
   go:
@@ -30,10 +37,13 @@ langs:
       - '(?i)\b(select\s[\s\S]{0,200}\sfrom|insert\s+into|update\s+\w+\s+set|delete\s+from|order\s+by|where\s)'
   php:
     interpolated: true
+    arg: first
     sinks:
       - '\$wpdb->(query|get_results|get_row|get_var|get_col)\('
       - '\b(mysqli_query|mysql_query|pg_query|sqlsrv_query)\('
       - '->(query|exec|rawQuery|raw)\('
       - '\bDB::(select|statement|raw|unprepared)\('
+    guards:
+      - '\bin_array\('
     line_guards:
       - '->prepare\(|\besc_sql\(|\bintval\(|\babsint\(|\(int\)\s*\$|\bwpdb::prepare'

@@ -131,7 +131,12 @@ func (fc *fileCtx) scan(f fnSpan, c *Checker, t taintState, hs *helperSet, summa
 		if loc == nil || i == f.head || defLine.MatchString(line) {
 			continue // a method named exec() is not a call to exec()
 		}
-		if !inCode(line, loc[0], lang) {
+		// a sink regex may start on the character before the name: 'include' is a quoted word
+		pos := loc[0]
+		if c := line[pos]; c == '"' || c == '\'' || c == '`' {
+			pos++
+		}
+		if !inCode(line, pos, lang) {
 			continue // quoted in a log message or a trailing comment
 		}
 		if w == nil && lang == "python" && c.Class == "xss" && pyBareResponse.MatchString(line[loc[0]:]) && fc.plainResponse {
@@ -158,7 +163,7 @@ func (fc *fileCtx) scan(f fnSpan, c *Checker, t taintState, hs *helperSet, summa
 			if args == "" {
 				continue
 			}
-			if lang == "python" && l.Arg == "first" && w == nil {
+			if lang == "python" && l.Arg == "first" && w == nil && c.Class != "sqli" {
 				// FileResponse(file_id=..., name=...): a model of the same name, not a path
 				if m := pyKeywordArg.FindStringSubmatch(args); m != nil && !pyPathKeyword[m[1]] {
 					continue
@@ -166,7 +171,9 @@ func (fc *fileCtx) scan(f fnSpan, c *Checker, t taintState, hs *helperSet, summa
 			}
 			if lang == "php" {
 				args = phpTestOnly.ReplaceAllString(args, "") // input only compared, never output
+				args = phpTmpName.ReplaceAllString(args, "")  // the path PHP picked for the upload
 			}
+			args = dropWholeRequest(args)
 			if hs.cleans(args) {
 				continue // the argument goes through a same-file helper that checks it
 			}
@@ -294,7 +301,8 @@ func (fc *fileCtx) helpers(fns []fnSpan, active []*Checker) map[string]*helperSe
 		l := c.Langs[fc.lang]
 		hs := &helperSet{}
 		for _, g := range fns {
-			if g.name == "" || g.end < g.start || g.end >= len(fc.lines) {
+			// phpHead also reads "function if (" in a comment: if() is no helper
+			if g.name == "" || jsKeywords[g.name] || g.end < g.start || g.end >= len(fc.lines) {
 				continue
 			}
 			body := strings.Join(fc.lines[g.start:g.end+1], "\n")
@@ -371,6 +379,29 @@ func nthArg(s string, n int) string {
 
 var phpVarRe = regexp.MustCompile(`\$\w+`)
 
+// phpTmpName is the server-chosen temp path of an upload. The client's own name for the file
+// is ['name'], which stays input.
+var phpTmpName = regexp.MustCompile(`\$_FILES(\[[^\]]*\])*?\[\s*['"]tmp_name['"]\s*\](\[[^\]]*\])*`)
+
+// dropWholeRequest blanks a request object handed on whole: `_apps_root(request)` or
+// `discard(req)` read what they need themselves, and are read as handlers on their own. Only
+// a member of it (request.args, req.body) is a value the client wrote.
+func dropWholeRequest(args string) string {
+	var b strings.Builder
+	last := 0
+	for _, loc := range identRe.FindAllStringIndex(args, -1) {
+		switch args[loc[0]:loc[1]] {
+		case "req", "request", "$req", "$request":
+			if rest := args[loc[1]:]; !strings.HasPrefix(rest, ".") && !strings.HasPrefix(rest, "[") && !strings.HasPrefix(rest, "->") && !strings.HasPrefix(rest, "?.") {
+				b.WriteString(args[last:loc[0]])
+				last = loc[1]
+			}
+		}
+	}
+	b.WriteString(args[last:])
+	return b.String()
+}
+
 // orderedParams lists a function's parameter names in order; "" stands for one it can't name
 // (a destructured object), so positions stay right.
 func orderedParams(params, lang string) []string {
@@ -430,7 +461,7 @@ func (fc *fileCtx) guarded(l *checkerLang, f fnSpan, i int, t taintState) bool {
 		if !anyMatch(l.guards, line) {
 			continue
 		}
-		if l.GuardsAnywhere || containsName(line, t.tainted) != "" || fc.source != nil && fc.source.MatchString(line) {
+		if l.GuardsAnywhere || mentionsName(line, t.tainted) || fc.source != nil && fc.source.MatchString(line) {
 			return true
 		}
 	}
